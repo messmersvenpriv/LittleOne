@@ -1,5 +1,5 @@
 
-from kitzkmz.cli import app
+from LittleOne.cli import app
 
 if __name__ == "__main__":
     app()
