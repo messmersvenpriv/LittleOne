@@ -5,5 +5,5 @@ if (Test-Path dist) { Remove-Item dist -Recurse -Force }
 if (Test-Path build) { Remove-Item build -Recurse -Force }
 $iconParam = ""
 if (Test-Path .\assets\app.ico) { $iconParam = "--icon .\assets\app.ico" }
-pyinstaller --onefile --windowed --name Kitzrettung $iconParam .\src\ui_app.py
-Write-Host "Fertig: dist\Kitzrettung.exe"
+pyinstaller --onefile --windowed --name LittleOne $iconParam .\src\ui_app.py
+Write-Host "Fertig: dist\LittleOne.exe"

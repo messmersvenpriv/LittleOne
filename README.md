@@ -1,4 +1,4 @@
-# Kitzrettung KMZ/KML Tool – GUI (Route A)
+# Kitzrettung KMZ/KML Tool – GUI
 
 ## Entwicklung: GUI schnell starten
 ```powershell
