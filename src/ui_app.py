@@ -77,7 +77,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 QtWidgets.QMessageBox.critical(
                     self,
                     "Fehlende Engine",
-                    "Paket 'kitzkmz' fehlt. Bitte Abhängigkeiten im venv installieren.",
+                    "Paket 'LittleOne' fehlt. Bitte Abhängigkeiten im venv installieren.",
                 )
                 return
             self.status.showMessage("Konvertiere …")
