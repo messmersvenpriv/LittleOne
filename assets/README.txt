@@ -1,0 +1,1 @@
+Lege hier app.ico ab, um das App-Icon in der EXE zu nutzen.

@@ -1,0 +1,11 @@
+{
+  "version": "0.2.0",
+  "configurations": [{
+    "name": "Run GUI (PySide6)",
+    "type": "python",
+    "request": "launch",
+    "program": "${workspaceFolder}/src/ui_app.py",
+    "console": "integratedTerminal",
+    "justMyCode": true
+  }]
+}

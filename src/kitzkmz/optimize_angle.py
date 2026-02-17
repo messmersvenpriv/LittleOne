@@ -1,4 +1,3 @@
-
 from shapely.geometry import Polygon
 import math
 

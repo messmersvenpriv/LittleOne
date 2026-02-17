@@ -1,9 +1,9 @@
-
 import typer
 from pathlib import Path
-from . import kmz_reader, kml_writer, optimize_angle, dji_rules
+from . import kmz_reader, kml_writer, optimize_angle
 
 app = typer.Typer(help="KMZ → (DJI-kompatible) KMLs konvertieren und optimieren.")
+
 
 @app.command()
 def convert(
@@ -27,6 +27,7 @@ def convert(
     kml_writer.write_polygons_to_kmls(norm, str(out), base_name)
     typer.secho(f"Erfolgreich: {len(norm)} KMLs in {out}", fg=typer.colors.GREEN)
 
+
 @app.command()
 def optimize(
     kml_file: Path = typer.Argument(..., exists=True, readable=True),
@@ -40,7 +41,8 @@ def optimize(
     from shapely.geometry import shape, Polygon
 
     text = kml_file.read_text(encoding="utf-8")
-    doc = kmlmod.KML(); doc.from_string(text.encode("utf-8"))
+    doc = kmlmod.KML()
+    doc.from_string(text.encode("utf-8"))
     polys = []
     for f1 in doc.features():
         for f2 in getattr(f1, "features", lambda: [])():
@@ -48,16 +50,19 @@ def optimize(
                 g = getattr(f3, "geometry", None)
                 if g:
                     shp = shape(g.__geo_interface__)
-                    if shp.geom_type == "Polygon": polys.append(shp)
+                    if shp.geom_type == "Polygon":
+                        polys.append(shp)
 
     if not polys:
-        typer.secho("Keine Polygone im KML.", fg=typer.colors.RED, err=True); raise typer.Exit(2)
+        typer.secho("Keine Polygone im KML.", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
 
     ang = optimize_angle.mrr_angle_deg(polys[0]) if mode == "mrr" else float(mode)
     out.mkdir(parents=True, exist_ok=True)
     out_file = out / f"{kml_file.stem}_angle_{int(round(ang))}.txt"
     out_file.write_text(f"{ang:.3f}", encoding="utf-8")
     typer.secho(f"Winkel={ang:.3f}° → {out_file.name}", fg=typer.colors.GREEN)
+
 
 if __name__ == "__main__":
     app()

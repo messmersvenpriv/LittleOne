@@ -1,12 +1,11 @@
-
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "kitzkmz"
-version = "0.1.0"
-description = "KMZ→KML-Formatter für DJI Pilot 2 (Kitzrettung)"
+version = "0.2.0"
+description = "KMZ→KML-Formatter (DJI Pilot 2) mit GUI"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

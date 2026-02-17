@@ -1,12 +1,11 @@
-
-# Standard-Parameter für die Verarbeitung
+# Standard-Parameter
 output_dir: "out"
-altitude_mode: "clampToGround"   # oder "absolute"
+altitude_mode: "clampToGround"
 default_altitude: 0.0
-force_polygon: true               # aus Polylines -> Polygon erzwingen, falls nötig
-close_rings: true                 # KML-Ringe schließen
-add_z_if_missing: true            # Z=0 ergänzen
-optimize_angle: "mrr"             # "mrr" oder Grad (0-179)
+force_polygon: true
+close_rings: true
+add_z_if_missing: true
+optimize_angle: "mrr"
 tile:
-  enabled: false                  # große Polygone aufteilen?
-  max_edge_m: 500                 # Beispielwert
+  enabled: false
+  max_edge_m: 500
