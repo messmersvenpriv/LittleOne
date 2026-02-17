@@ -1,0 +1,148 @@
+LittleOne – Entwickleranleitung (intern, nur für mich)
+LittleOne besteht aus einer Python‑Anwendung mit einer grafischen Oberfläche (PySide6). Für Nutzer gibt es zwei mögliche Verteilungsformen:
+
+Eine portable EXE (keine Installation nötig).
+Eine Installer-Version mit Squirrel.Windows (für automatische Updates, Startmenü, usw.).
+
+Dieser Text beschreibt ausschließlich alles, was ich als Entwickler wissen und tun muss.
+
+ENTWICKLUNG
+
+
+Virtuelle Umgebung erstellen und aktivieren
+python -m venv .venv
+..venv\Scripts\Activate.ps1
+Danach die Abhängigkeiten installieren:
+python -m pip install -r requirements.txt
+
+
+Anwendung während der Entwicklung starten
+Die GUI starte ich direkt per:
+python .\src\ui_app.py
+Alternativ kann ich in VS Code den Eintrag „Run GUI (PySide6)“ im Debug-Menü nutzen.
+Während ich arbeite, starte ich einfach die GUI immer wieder neu, um Änderungen zu testen.
+
+
+Projektstruktur (Kurzüberblick)
+
+src/ui_app.py → Die GUI
+src/kitzkmz/ → Die technische Engine (KMZ/KML-Verarbeitung)
+scripts/ → Build-Skripte für EXE und Installer
+assets/ → Icon app.ico für die EXE
+config/ → Einstellungen (z. B. default.yaml)
+
+
+
+
+PORTABLE EXE ERSTELLEN (PYINSTALLER)
+Mit einem einzigen Befehl baue ich eine portable EXE, die auf JEDEM Windows-System sofort läuft — auch ohne Python.
+Befehl:
+powershell -ExecutionPolicy Bypass -File .\scripts\build_gui_exe.ps1
+Ergebnis:
+dist\LittleOne.exe
+Diese EXE ist eine Ein-Datei-Anwendung, die alles enthält (Python, Bibliotheken, Code).
+Nutzer müssen nichts installieren und keine Rechte besitzen.
+Die EXE kann direkt versendet und gestartet werden.
+
+INSTALLER ERSTELLEN (SQUIRREL.WINDOWS)
+Falls ich LittleOne wie professionelle Windows-Software verteilen will (Startmenü-Eintrag, Auto-Updates, Delta-Patches), nutze ich Squirrel.Windows.
+Voraussetzungen:
+Squirrel muss installiert sein, z. B.:
+choco install squirrel.windows
+Wichtig: Vor jedem Installer-Build muss zuerst die EXE neu gebaut werden:
+powershell -ExecutionPolicy Bypass -File .\scripts\build_gui_exe.ps1
+Dann den Installer erzeugen:
+powershell -ExecutionPolicy Bypass -File .\scripts\squirrel_releasify.ps1
+Ergebnis ist der Ordner:
+Releases
+mit folgenden Dateien:
+
+Setup.exe → Diese Datei bekommen NEUE Nutzer
+RELEASES → Index für Updates
+LittleOne-x.y.z-full.nupkg
+LittleOne-x.y.z-delta.nupkg
+
+Die Setup.exe ist der vollständige Installer für Nutzer.
+
+INSTALLATION AUS SICHT DES NUTZERS
+Der Nutzer erhält NUR:
+Setup.exe
+Der Nutzer muss:
+
+nur doppelklicken
+LittleOne installiert sich sofort
+es erscheint ein Eintrag im Startmenü
+keine Adminrechte notwendig
+kein Wizard, keine Konfiguration
+
+Installationsort:
+C:\Users<Benutzer>\AppData\Local\LittleOne\
+Dort liegen:
+
+die aktuelle Version
+Update.exe
+delta-Patches
+interne Verzeichnisse für zukünftige Versionen
+
+
+UPDATES VERTEILEN (DEVELOPER-WORKFLOW)
+Wenn ich eine neue Version veröffentlichen will:
+
+Version erhöhen (z. B. UI, Release-Label oder pyproject.toml)
+Neue EXE bauen
+powershell -ExecutionPolicy Bypass -File .\scripts\build_gui_exe.ps1
+Squirrel erneut laufen lassen
+powershell -ExecutionPolicy Bypass -File .\scripts\squirrel_releasify.ps1
+Den neuen Releases-Ordner irgendwo veröffentlichen
+Beispiele:
+
+GitHub Releases
+Webserver
+Nextcloud / SharePoint
+Netzlaufwerk
+
+
+
+
+WIE NUTZER UPDATES BEKOMMEN
+Es gibt drei Wege:
+A) Automatisch beim Programmstart
+Wenn ich es einbaue, kann LittleOne bei jedem Start Update.exe aufrufen:
+Update.exe --update 
+Das Update wird installiert und LittleOne startet neu.
+B) Im Menü: „Nach Updates suchen“
+Ich kann einen Menüpunkt in der GUI hinzufügen, der denselben Befehl ausführt.
+C) Manuell
+Der Nutzer geht nach:
+C:\Users<Name>\AppData\Local\LittleOne
+und führt aus:
+Update.exe --update 
+
+WICHTIGE TECHNISCHE HINWEISE
+
+
+SmartScreen-Warnung
+Bei selbstgebauten EXEs meldet Windows oft:
+„Unbekannter Herausgeber“
+Das ist normal.
+Eine Codesignatur würde es entfernen, ist aber nicht notwendig.
+
+
+Squirrel installiert keine Adminrechte
+Der Installer läuft komplett im Benutzerprofil.
+
+
+Jede Version bekommt einen eigenen Ordner
+Squirrel legt Versionen ab wie:
+app-1.0.0
+app-1.0.1
+Zwischen ihnen wird automatisch verlinkt. Updates sind sauber rückgängig machbar.
+
+
+Portable EXE vs. Installer
+
+
+
+Die portable EXE ist einfach zu verteilen, aber ohne Auto-Update.
+Der Squirrel-Installer erlaubt Updates, ist aber aufwendiger zu pflegen.
+

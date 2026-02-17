@@ -4,3 +4,7 @@ Read KMZ
 Split KMZ
 Handle Time
 Handle Sonderzeichen
+„Nach Updates suchen…“-Button in GUI einbauen
+Auto-Update beim Start aktivieren
+Version in der App anzeigen
+Dark‑Mode, Drag&Drop, mehr UX
