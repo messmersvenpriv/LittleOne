@@ -9,7 +9,7 @@ LittleOne sorgt dafür, dass deine Flächen **sauber, geschlossen und DJI‑konf
 
 ---
 
-# Funktionen (für Anwender)
+# Funktionen
 
 - Öffnen von **KMZ** und **KML** Dateien  
 - Automatisches Extrahieren von Polygonen  
@@ -26,7 +26,7 @@ LittleOne sorgt dafür, dass deine Flächen **sauber, geschlossen und DJI‑konf
 
 ---
 
-# Bedienung (für Nutzer)
+# Bedienung
 
 1. **LittleOne.exe** starten  
 2. Eine **KMZ** oder **KML**‑Datei auswählen  
@@ -35,26 +35,3 @@ LittleOne sorgt dafür, dass deine Flächen **sauber, geschlossen und DJI‑konf
 5. **Konvertieren** drücken  
 
 Die erzeugten DJI‑KML‑Dateien findest du im gewählten Ausgabeverzeichnis.
-
----
-
-# Entwickler‑Abschnitt  
-*(Dieser Teil ist für dich, nicht für normale Nutzer.)*
-
-Dieser Abschnitt erklärt:
-
-- wie du LittleOne entwickelst  
-- wie du aus dem Code eine **EXE** erzeugst  
-- wie du einen **Installer** mit **Squirrel.Windows** baust  
-- wie Updates funktionieren  
-- was Nutzer bei Updates tun müssen  
-
----
-
-# 🛠️ 1. Entwicklungsumgebung
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-
-python -m pip install -r requirements.txt

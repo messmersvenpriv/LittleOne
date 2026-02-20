@@ -8,3 +8,4 @@ Handle Sonderzeichen
 Auto-Update beim Start aktivieren
 Version in der App anzeigen
 Dark‑Mode, Drag&Drop, mehr UX
+Handle Name und Vor-/Nachname
