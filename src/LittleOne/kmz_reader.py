@@ -2,33 +2,22 @@ from fastkml import kml
 import zipfile
 from typing import List, Dict, Any, Optional, Union, Iterable, Tuple
 from dataclasses import dataclass
-from shapely.geometry import shape, Polygon, MultiPolygon, LinearRing
 from html import unescape
+from pathlib import Path
 import xml.etree.ElementTree as ET
 from datetime import datetime, date
 import re
-
-
-def extract_kml_string_from_kmz(kmz_path: str) -> str:
-    """
-    Liest die erste KML-Datei aus einem KMZ-Archiv und gibt sie als UTF-8-String zurück.
-    """
-    with zipfile.ZipFile(kmz_path, "r") as zf:
-        kml_name = next(n for n in zf.namelist() if n.lower().endswith(".kml"))
-        return zf.read(kml_name).decode("utf-8")
-
-
-# ==========================
-# Datenmodell (vollständig)
-# ==========================
+from shapely.geometry import shape, Polygon, MultiPolygon, LinearRing
 
 
 @dataclass
 class AreaFeature:
+    """Rohe Fläche aus dem KML/KMZ mit Properties und Geometrie."""
+
     id: Optional[str]
     name: Optional[str]
     props: Dict[str, Any]
-    geom: Union[Polygon, MultiPolygon]
+    geom: Optional[Union[Polygon, MultiPolygon]]
     style_url: Optional[str] = None
 
     def centroid_lonlat(self) -> Optional[tuple]:
@@ -132,35 +121,47 @@ def _parse_description_table(description_html: str) -> Dict[str, Any]:
     if not description_html:
         return {}
     html_text = unescape(description_html).strip()
+    # ElementTree ist bei embedded HTML oft zu strikt. Versuche ET, sonst Fallback per Regex.
     try:
         root = ET.fromstring(html_text)
-    except ET.ParseError:
-        start = html_text.lower().find("<table")
-        end = html_text.lower().rfind("</table>")
-        if start != -1 and end != -1:
-            snippet = html_text[start : end + 8]
-            root = ET.fromstring(snippet)
+        table = None
+        if root.tag.lower() == "table":
+            table = root
         else:
+            for elem in root.iter():
+                if isinstance(elem.tag, str) and elem.tag.lower() == "table":
+                    table = elem
+                    break
+        if table is None:
             return {}
-    table = None
-    if root.tag.lower() == "table":
-        table = root
-    else:
-        for elem in root.iter():
-            if isinstance(elem.tag, str) and elem.tag.lower() == "table":
-                table = elem
-                break
-    if table is None:
-        return {}
-    props: Dict[str, Any] = {}
-    for tr in table.findall(".//tr"):
-        tds = tr.findall("td")
-        if len(tds) == 2:
-            key = "".join(tds[0].itertext()).strip()
-            val = "".join(tds[1].itertext()).strip()
-            if key:
-                props[key] = _normalize_value(val)
-    return props
+        props: Dict[str, Any] = {}
+        for tr in table.findall(".//tr"):
+            tds = tr.findall("td")
+            if len(tds) == 2:
+                key = "".join(tds[0].itertext()).strip()
+                val = "".join(tds[1].itertext()).strip()
+                if key:
+                    props[key] = _normalize_value(val)
+        return props
+    except ET.ParseError:
+        # Tolerante Regex-Variante: suche <table>...</table> und <tr><td>k</td><td>v</td></tr>
+        tbl_match = re.search(
+            r"<table[\s\S]*?>[\s\S]*?</table>", html_text, flags=re.IGNORECASE
+        )
+        if not tbl_match:
+            return {}
+        table_html = tbl_match.group(0)
+        props = {}
+        for tr in re.findall(
+            r"<tr[\s\S]*?>[\s\S]*?</tr>", table_html, flags=re.IGNORECASE
+        ):
+            tds = re.findall(r"<td[\s\S]*?>([\s\S]*?)</td>", tr, flags=re.IGNORECASE)
+            if len(tds) >= 2:
+                key = re.sub(r"<[^>]+>", "", tds[0]).strip()
+                val = re.sub(r"<[^>]+>", "", tds[1]).strip()
+                if key:
+                    props[key] = _normalize_value(val)
+        return props
 
 
 def _iter_placemarks(obj) -> Iterable[kml.Placemark]:
@@ -210,43 +211,153 @@ def _as_polygon_or_multipolygon(geom) -> Optional[Union[Polygon, MultiPolygon]]:
 # ==========================
 
 
+def extract_all_kml_strings_from_kmz(kmz_path: str) -> List[Tuple[str, str]]:
+    """Extrahiere alle .kml Dateien aus einem .kmz (Zip) und liefere Liste (name, text)."""
+    texts: List[Tuple[str, str]] = []
+    try:
+        with zipfile.ZipFile(kmz_path, "r") as z:
+            for info in z.infolist():
+                if info.filename.lower().endswith(".kml"):
+                    try:
+                        data = z.read(info.filename)
+                        try:
+                            txt = data.decode("utf-8")
+                        except Exception:
+                            txt = data.decode("utf-8", "replace")
+                        texts.append((info.filename, txt))
+                    except Exception:
+                        continue
+    except Exception:
+        return []
+    return texts
+
+
+def _sanitize_kml_text(text: str) -> str:
+    """Entferne problematische Steuerzeichen und sorge für einen String.
+
+    Diese Funktion ist defensiv: sie decodiert Bytes, entfernt NULL/control
+    chars und ersetzt sie durch sichere Äquivalente.
+    """
+    if text is None:
+        return ""
+    if not isinstance(text, str):
+        try:
+            text = text.decode("utf-8")
+        except Exception:
+            try:
+                text = text.decode("latin-1")
+            except Exception:
+                text = str(text)
+    # entferne C0-Steuerzeichen außer Tab, LF, CR
+    text = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F]", "", text)
+    return text
+
+
 def parse_kmz_to_area_features(kmz_path: str) -> List[AreaFeature]:
     """
     Vollständige Features extrahieren (wie zuvor).
     """
-    kml_text = extract_kml_string_from_kmz(kmz_path)
-    kdoc = kml.KML()
-    kdoc.from_string(kml_text.encode("utf-8"))
+    # Unterstütze KMZ mit mehreren KML-Dateien: sammle alle KML-Texte
+    kml_texts: List[Tuple[str, str]] = []
+    if kmz_path.lower().endswith(".kmz"):
+        kml_texts = extract_all_kml_strings_from_kmz(kmz_path)
+    else:
+        # Treat as plain KML file path
+        kml_texts = [(kmz_path, Path(kmz_path).read_text(encoding="utf-8"))]
 
     features: List[AreaFeature] = []
-    for pm in _iter_placemarks(kdoc):
-        geom = _as_polygon_or_multipolygon(pm.geometry)
-        if geom is None:
-            continue
-        desc = getattr(pm, "description", None) or ""
-        props = _parse_description_table(desc)
-        pm_id = getattr(pm, "id", None)
-        pm_name = getattr(pm, "name", None)
-        style_url = (
-            getattr(pm, "styleUrl", None)
-            if hasattr(pm, "styleUrl")
-            else getattr(pm, "style_url", None)
-        )
-
-        features.append(
-            AreaFeature(
-                id=pm_id, name=pm_name, props=props, geom=geom, style_url=style_url
-            )
-        )
-
-    # Fallback: falls fastkml keine Placemarks/Polygone geliefert hat (z.B. wegen Namespace-Varianten),
-    # versuchen wir, das KML per ElementTree zu parsen und Polygone direkt auszulesen.
-    if not features:
+    for name, kml_text in kml_texts:
+        # sanitize and parse each KML text
+        kml_text = _sanitize_kml_text(kml_text)
         try:
-            features = _parse_kml_text_fallback(kml_text)
+            kdoc = kml.KML()
+            kdoc.from_string(kml_text.encode("utf-8"))
+            for pm in _iter_placemarks(kdoc):
+                geom = _as_polygon_or_multipolygon(pm.geometry)
+                desc = getattr(pm, "description", None) or ""
+                props = _parse_description_table(desc)
+                # Zusätzlich ExtendedData / SchemaData auslesen (SimpleData / Data)
+                pm_element = getattr(pm, "_element", None)
+                if pm_element is not None:
+                    for node in pm_element.iter():
+                        if not isinstance(node.tag, str):
+                            continue
+                        tag_local = node.tag.split("}")[-1].lower()
+                        if tag_local == "simpledata":
+                            name = node.get("name") or node.get("id")
+                            val = (node.text or "").strip()
+                            if name and name not in props:
+                                props[name] = _normalize_value(val)
+                        elif tag_local == "data":
+                            name = node.get("name")
+                            # find <value>
+                            val = ""
+                            for ch in node:
+                                if (
+                                    isinstance(ch.tag, str)
+                                    and ch.tag.split("}")[-1].lower() == "value"
+                                ):
+                                    val = (ch.text or "").strip()
+                                    break
+                            if name and name not in props:
+                                props[name] = _normalize_value(val)
+                pm_id = getattr(pm, "id", None)
+                pm_name = getattr(pm, "name", None)
+                style_url = (
+                    getattr(pm, "styleUrl", None)
+                    if hasattr(pm, "styleUrl")
+                    else getattr(pm, "style_url", None)
+                )
+                features.append(
+                    AreaFeature(
+                        id=pm_id,
+                        name=pm_name,
+                        props=props,
+                        geom=geom,
+                        style_url=style_url,
+                    )
+                )
         except Exception:
-            # Falls auch das fehlschlägt, behalten wir die leere Liste bei
-            pass
+            # falls fastkml hier scheitert, versuche Fallback auf den KML-Text
+            try:
+                fb = _parse_kml_text_fallback(kml_text)
+                features.extend(fb)
+            except Exception:
+                continue
+
+    # Ergänze Ergebnisse durch einen ElementTree/Regex-Fallback (einige Placemarks werden
+    # von fastkml unter Umständen nicht korrekt geliefert). Wir mergen nach Placemark-ID
+    # (falls vorhanden) und füllen fehlende Geometrien auf.
+    # Ergänze zusätzlich Features aus einem Fallback-Scan (falls vorhanden)
+    try:
+        # fallback über alle Texte (falls mehrere KMLs)
+        fallback_feats: List[AreaFeature] = []
+        for _, kml_text in kml_texts:
+            try:
+                fallback_feats.extend(_parse_kml_text_fallback(kml_text))
+            except Exception:
+                continue
+    except Exception:
+        fallback_feats = []
+
+    existing_ids = {f.id for f in features if f.id}
+    # Merge: falls fallback Feature neue ID hat, oder existing has no geom but fallback has, update
+    for fb in fallback_feats:
+        if fb.id and fb.id in existing_ids:
+            # update existing feature if it lacks geometry
+            for ex in features:
+                if ex.id == fb.id:
+                    if (
+                        ex.geom is None or getattr(ex.geom, "is_empty", False)
+                    ) and fb.geom is not None:
+                        ex.geom = fb.geom
+                    # merge props: keep existing keys, extend missing
+                    for k, v in fb.props.items():
+                        if k not in ex.props:
+                            ex.props[k] = v
+                    break
+        else:
+            features.append(fb)
     return features
 
 
@@ -340,23 +451,24 @@ def _split_name(fullname: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
 
 def _best_phone(props: Dict[str, Any]) -> Optional[str]:
     """
-    Bevorzuge 'Antragsteller_Telefon', sonst 'Antragsteller_Handy'.
+    Bevorzuge 'Antragsteller_Handy' (Mobil), sonst 'Antragsteller_Telefon'.
     Normalisiere grob (Spaces entfernen). Keine strenge Validierung.
     """
+    # prefer mobile fields first
     tel = _get_prop(
         props,
         [
-            "antragsteller_telefon",
-            "telefon",  # mögliche Kurzform
+            "antragsteller_handy",
+            "handy",
+            "mobil",
         ],
     )
     if not tel:
         tel = _get_prop(
             props,
             [
-                "antragsteller_handy",
-                "handy",
-                "mobil",
+                "antragsteller_telefon",
+                "telefon",  # mögliche Kurzform
             ],
         )
     if isinstance(tel, str):
@@ -402,11 +514,91 @@ def _parse_kml_text_fallback(kml_text: str) -> List[AreaFeature]:
     falls fastkml aufgrund von Namespace-Varianten keine Features liefert.
     """
     feats: List[AreaFeature] = []
+    # sanitize before attempting to parse with ElementTree
+    kml_text = _sanitize_kml_text(kml_text)
     try:
         root = ET.fromstring(kml_text)
     except ET.ParseError:
         # versuche Strip BOM/whitespace
-        root = ET.fromstring(kml_text.strip())
+        try:
+            root = ET.fromstring(kml_text.strip())
+        except ET.ParseError:
+            # letzter Fallback: extrahiere Placemark-Snippets per Regex und parse diese einzeln
+            feats = []
+            placemarks = re.findall(
+                r"(<Placemark[\s\S]*?</Placemark>)", kml_text, flags=re.IGNORECASE
+            )
+            for pm_snip in placemarks:
+                try:
+                    pm_elem = ET.fromstring(pm_snip)
+                except ET.ParseError:
+                    # überspringe defekte Placemark
+                    continue
+
+                pm_id = pm_elem.get("id")
+                name = None
+                desc = ""
+                style_url = None
+                for c in pm_elem:
+                    if isinstance(c.tag, str):
+                        t = c.tag.split("}")[-1].lower()
+                        if t == "name":
+                            name = (c.text or "").strip()
+                        elif t == "description":
+                            desc = c.text or ""
+                        elif t == "styleurl":
+                            style_url = (c.text or "").strip()
+
+                props = _parse_description_table(desc)
+                geom_polys = []
+                for node in pm_elem.iter():
+                    if not isinstance(node.tag, str):
+                        continue
+                    if node.tag.split("}")[-1].lower() == "coordinates":
+                        coords_text = (node.text or "").strip()
+                        if not coords_text:
+                            continue
+                        pts = []
+                        for part in re.split(r"\s+", coords_text.strip()):
+                            if not part:
+                                continue
+                            comps = part.split(",")
+                            if len(comps) >= 2:
+                                try:
+                                    lon = float(comps[0])
+                                    lat = float(comps[1])
+                                    pts.append((lon, lat))
+                                except ValueError:
+                                    continue
+                        if len(pts) >= 3:
+                            try:
+                                poly = Polygon(pts)
+                                if poly.is_valid and not poly.is_empty:
+                                    geom_polys.append(poly)
+                            except Exception:
+                                continue
+
+                # Kombiniere mehrere Polygone zu einem MultiPolygon, falls nötig
+                geom_final = None
+                if len(geom_polys) == 1:
+                    geom_final = geom_polys[0]
+                elif len(geom_polys) > 1:
+                    try:
+                        geom_final = MultiPolygon(geom_polys)
+                    except Exception:
+                        geom_final = None
+
+                feats.append(
+                    AreaFeature(
+                        id=pm_id,
+                        name=name,
+                        props=props,
+                        geom=geom_final,
+                        style_url=style_url,
+                    )
+                )
+
+            return feats
 
     # Suche alle Placemark-Elemente (Namespace-unabhängig)
     for pm in root.iter():
@@ -441,6 +633,28 @@ def _parse_kml_text_fallback(kml_text: str) -> List[AreaFeature]:
                 break
 
         props = _parse_description_table(desc)
+        # Ergänze ExtendedData / SchemaData falls vorhanden
+        for node in pm.iter():
+            if not isinstance(node.tag, str):
+                continue
+            tag_local = node.tag.split("}")[-1].lower()
+            if tag_local == "simpledata":
+                name = node.get("name") or node.get("id")
+                val = (node.text or "").strip()
+                if name and name not in props:
+                    props[name] = _normalize_value(val)
+            elif tag_local == "data":
+                name = node.get("name")
+                val = ""
+                for ch in node:
+                    if (
+                        isinstance(ch.tag, str)
+                        and ch.tag.split("}")[-1].lower() == "value"
+                    ):
+                        val = (ch.text or "").strip()
+                        break
+                if name and name not in props:
+                    props[name] = _normalize_value(val)
 
         # Suche Polygon/LinearRing/coordinates unterhalb des Placemark
         geom_polys = []
@@ -471,13 +685,22 @@ def _parse_kml_text_fallback(kml_text: str) -> List[AreaFeature]:
                     except Exception:
                         continue
 
-        # Für jeden Polygon ein Feature anlegen (falls mehrere Ringe vorhanden sind, nehmen wir das erste als äußere Grenze)
-        for g in geom_polys:
-            feats.append(
-                AreaFeature(
-                    id=pm_id, name=name, props=props, geom=g, style_url=style_url
-                )
+        # Kombiniere mehrere Polygone zu einem MultiPolygon, falls nötig;
+        # lege ein einzelnes AreaFeature pro Placemark an (geom kann None sein).
+        geom_final = None
+        if len(geom_polys) == 1:
+            geom_final = geom_polys[0]
+        elif len(geom_polys) > 1:
+            try:
+                geom_final = MultiPolygon(geom_polys)
+            except Exception:
+                geom_final = None
+
+        feats.append(
+            AreaFeature(
+                id=pm_id, name=name, props=props, geom=geom_final, style_url=style_url
             )
+        )
 
     return feats
 
@@ -485,6 +708,8 @@ def _parse_kml_text_fallback(kml_text: str) -> List[AreaFeature]:
 def polygons_from_kml(kml_text: str) -> List[Polygon]:
     """Gibt eine Liste von Shapely-Polygone aus einem KML-Text zurück (sowohl fastkml- als auch Fallback-Parsing)."""
     polys: List[Polygon] = []
+    # sanitize before parsing
+    kml_text = _sanitize_kml_text(kml_text)
     try:
         kdoc = kml.KML()
         kdoc.from_string(kml_text.encode("utf-8"))
@@ -555,13 +780,45 @@ def summarize_features(features: List[AreaFeature]) -> List[AreaSummary]:
             schlag = str(schlag)
 
         full_name = _get_prop(props, key_name)
-        # In deinen Beispielen ist 'Antragsteller_Name' oft nur Vorname ('Bernd', 'Hartmut', 'Otto').
-        # Wir splitten trotzdem nach Heuristik:
-        vorname, nachname = _split_name(
-            full_name if isinstance(full_name, str) else None
-        )
+        # Falls nur ein Name-Feld vorhanden ist, kann es "Vorname Nachname" oder
+        # "Nachname, Vorname" enthalten. Versuche eine robuste Aufteilung.
+        if isinstance(full_name, str) and full_name.strip():
+            nm = full_name.strip()
+            # Komma-getrennt ("Nachname, Vorname")
+            if "," in nm:
+                parts = [p.strip() for p in nm.split(",") if p.strip()]
+                if len(parts) >= 2:
+                    vorname = parts[1]
+                    nachname = parts[0]
+                else:
+                    vorname, nachname = _split_name(nm)
+            else:
+                vorname, nachname = _split_name(nm)
+        else:
+            vorname, nachname = _split_name(None)
 
         telefon = _best_phone(props)
+
+        # Wenn nur 'Antragsteller_Telefon' vorhanden ist, kopiere es in 'Antragsteller_Handy'
+        # damit ältere Datenformate Handynummern unter dem Handy-Feld erhalten.
+        tel_raw = (
+            _get_prop(props, ["antragsteller_telefon", "telefon"])
+            if isinstance(props, dict)
+            else None
+        )
+        mobile_raw = (
+            _get_prop(props, ["antragsteller_handy", "handy", "mobil"])
+            if isinstance(props, dict)
+            else None
+        )
+        if not mobile_raw and tel_raw:
+            # setze fallback key so that later lookups find it
+            try:
+                props["Antragsteller_Handy"] = tel_raw
+            except Exception:
+                pass
+            # recompute telefon value
+            telefon = _best_phone(props)
 
         bekanntgabe_val = _get_prop(props, key_bekanntgabe)
         if isinstance(bekanntgabe_val, str):

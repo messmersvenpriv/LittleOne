@@ -11,7 +11,7 @@ from LittleOne.kmz_reader import parse_kmz_to_area_summaries
 
 if __name__ == "__main__":
     kmz_file = (
-        r"C:\LittleOne\data\start\S123_e6d87e0a84674ec19e836aa14c1a259d_KML (9).kmz"
+        r"C:\LittleOne\data\start\S123_e6d87e0a84674ec19e836aa14c1a259d_KML (10).kmz"
     )
     summaries = parse_kmz_to_area_summaries(kmz_file)
 
