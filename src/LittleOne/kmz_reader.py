@@ -471,10 +471,16 @@ def _best_phone(props: Dict[str, Any]) -> Optional[str]:
                 "telefon",  # mögliche Kurzform
             ],
         )
+    # Akzeptiere auch numerische Werte (kommen durch _normalize_value vor)
+    if isinstance(tel, (int, float)):
+        return str(int(tel))
     if isinstance(tel, str):
         t = tel.strip()
-        # einfache Normalisierung: Leerzeichen raus
+        # Ersetze NBSP etc., entferne überflüssige Leerzeichen
+        t = t.replace("\u00a0", " ")
         t = re.sub(r"\s+", "", t)
+        # Normalisiere gängige Trennzeichen: erhalte +, (), -, / ; entferne andere Zeichen
+        t = re.sub(r"[^0-9\+\-\/()]+", "", t)
         return t if t else None
     return None
 
@@ -766,6 +772,11 @@ def summarize_features(features: List[AreaFeature]) -> List[AreaSummary]:
             "antragsteller_name",  # im Beispiel
             "name",  # Fallback (unspezifisch; wird nur genutzt, wenn oben fehlt)
         ]
+        key_nachname = [
+            "antragsteller_nachname",
+            "nachname",
+            "lastname",
+        ]
         key_bekanntgabe = [
             "bekanntgabe_kitzrettung",
             "bekanntgabekitzrettung",
@@ -796,6 +807,23 @@ def summarize_features(features: List[AreaFeature]) -> List[AreaSummary]:
                 vorname, nachname = _split_name(nm)
         else:
             vorname, nachname = _split_name(None)
+
+        # Heuristik: Wenn das einzelne Namensfeld nur einen Token enthielt und
+        # es ein separates 'nachname' Feld in props gibt, dann ist es
+        # wahrscheinlich so, dass das einzelne Feld der Vorname ist und das
+        # separate Feld der Nachname. Korrigiere das.
+        if (
+            isinstance(full_name, str)
+            and full_name.strip()
+            and vorname is None
+            and isinstance(nachname, str)
+            and len(nachname.split()) == 1
+        ):
+            alt_n = _get_prop(props, key_nachname)
+            if alt_n and isinstance(alt_n, str) and alt_n.strip():
+                # Nutze das Einzel-Feld als Vorname und das separate Nachname-Feld
+                vorname = full_name.strip()
+                nachname = alt_n.strip()
 
         telefon = _best_phone(props)
 
