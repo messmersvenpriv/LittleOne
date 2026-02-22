@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+ xsi:schemaLocation="http://www.opengis.net/kml/2.2 http://schemas.opengis.net/kml/2.2.0/ogckml22.xsd http://www.google.com/kml/ext/2.2 http://code.google.com/apis/kml/schema/kml22gx.xsd">
+<Document id="survey">
+  <name>survey</name>
+  <snippet></snippet>
+  <Folder id="FeatureLayer0">
+    <name>survey</name>
+    <snippet></snippet>
+    <Placemark id="ID_00000">
+      <name></name>
+      <snippet></snippet>
+      <description><![CDATA[<html><body><table border="1"><tr><th>Field Name</th><th>Field Value</th></tr><tr><td>globalid</td><td>{AB6C3135-5588-4E84-81AE-C0D58AE74651}</td></tr><tr><td>Shape__Area</td><td>0.000002</td></tr><tr><td>Shape__Length</td><td>0.008624</td></tr><tr><td>CreationDate</td><td>6/26/2025 6:23:41.790 PM</td></tr><tr><td>EditDate</td><td>6/27/2025 4:33:38.525 PM</td></tr><tr><td>Editor</td><td>KitzrettungRaBad</td></tr><tr><td>Anmeldeformular</td><td>Anmeldung</td></tr><tr><td>Datum_Mahd</td><td>6/28/2025 10:00:00 AM</td></tr><tr><td>Geplantes_Datum_Mahd</td><td>Null</td></tr><tr><td>Weiter_Angaben_Datum</td><td>Null</td></tr><tr><td>Gemarkung</td><td>Ötigheim</td></tr><tr><td>Schlag_Flurstueck</td><td>Große Untere Roeder 824_840</td></tr><tr><td>Bemerkung_Lage</td><td>Bäume</td></tr><tr><td>Antragsteller_Name</td><td>Bernd</td></tr><tr><td>Antragsteller_Handy</td><td>49 1742566318</td></tr><tr><td>Antragsteller_Whatsapp</td><td>Ja</td></tr><tr><td>Antragsteller_Telefon</td><td>0722217259</td></tr><tr><td>Antragsteller_Email</td><td>B.Weingaertner@gmx.de</td></tr><tr><td>Antragsteller_Taetigkeit</td><td>other</td></tr><tr><td>Sonstige_Taetigkeit</td><td>Null</td></tr><tr><td>Bekanntgabe_Kitzrettung</td><td>Nein</td></tr><tr><td>Datenschutz</td><td>Zustimmen</td></tr><tr><td>Kontaktaufnahme_am</td><td>Null</td></tr><tr><td>erledigt_am</td><td>Null</td></tr><tr><td>erledigt</td><td>Null</td></tr><tr><td>Flaechendefinition</td><td>Null</td></tr><tr><td>fl_che_geplant</td><td>Null</td></tr><tr><td>nachname</td><td>Weingärtner</td></tr><tr><td>name_des_jagdp_chters_der_bei_d</td><td>Karl Heinz Krebs</td></tr></table></body></html>]]></description>
+      <styleUrl>#PolyStyle00</styleUrl>
+        <Polygon>
+          <extrude>0</extrude><altitudeMode>clampToGround</altitudeMode>
+          <outerBoundaryIs><LinearRing><coordinates> 8.214906513000075,48.90256561106577,0 8.216252077000036,48.90194347206578,0 8.217493993000062,48.90122431606579,0 8.216804523000064,48.90076393506573,0 8.216236852000065,48.90100699406575,0 8.216898652000056,48.90091728206578,0 8.216130278000037,48.90127435706578,0 8.215118911000047,48.90172043506578,0 8.214516440000068,48.90197921606579,0 8.214951437000025,48.90234951306577,0 8.214755688000025,48.90243958506579,0 8.214906513000075,48.90256561106577,0 8.214906513000075,48.90256561106577,0</coordinates></LinearRing></outerBoundaryIs>
+        </Polygon>
+    </Placemark>
+    <Placemark id="ID_00001">
+      <name></name>
+      <snippet></snippet>
+      <description><![CDATA[<html><body><table border="1"><tr><th>Field Name</th><th>Field Value</th></tr><tr><td>globalid</td><td>{C2D22317-2BBA-47C4-8DA2-1989C290E589}</td></tr><tr><td>Shape__Area</td><td>0.000002</td></tr><tr><td>Shape__Length</td><td>0.008479</td></tr><tr><td>CreationDate</td><td>6/29/2025 9:20:10.622 AM</td></tr><tr><td>EditDate</td><td>6/29/2025 9:20:10.622 AM</td></tr><tr><td>Anmeldeformular</td><td>Anmeldung</td></tr><tr><td>Datum_Mahd</td><td>6/30/2025 10:00:00 AM</td></tr><tr><td>Geplantes_Datum_Mahd</td><td>Null</td></tr><tr><td>Weiter_Angaben_Datum</td><td>Null</td></tr><tr><td>Gemarkung</td><td>Hügelsheim</td></tr><tr><td>Schlag_Flurstueck</td><td>Jägerkopf</td></tr><tr><td>Bemerkung_Lage</td><td>Null</td></tr><tr><td>Antragsteller_Name</td><td>Hartmut </td></tr><tr><td>Antragsteller_Handy</td><td>016098951358</td></tr><tr><td>Antragsteller_Whatsapp</td><td>Ja</td></tr><tr><td>Antragsteller_Telefon</td><td>Null</td></tr><tr><td>Antragsteller_Email</td><td>hartmut.roesinger@t-online.de</td></tr><tr><td>Antragsteller_Taetigkeit</td><td>Landwirt</td></tr><tr><td>Sonstige_Taetigkeit</td><td>Null</td></tr><tr><td>Bekanntgabe_Kitzrettung</td><td>Ja</td></tr><tr><td>Datenschutz</td><td>Zustimmen</td></tr><tr><td>Kontaktaufnahme_am</td><td>Null</td></tr><tr><td>erledigt_am</td><td>Null</td></tr><tr><td>erledigt</td><td>Null</td></tr><tr><td>Flaechendefinition</td><td>Null</td></tr><tr><td>fl_che_geplant</td><td>Null</td></tr><tr><td>nachname</td><td>Rösinger</td></tr><tr><td>name_des_jagdp_chters_der_bei_d</td><td>Peter jehle</td></tr></table></body></html>]]></description>
+      <styleUrl>#PolyStyle00</styleUrl>
+        <Polygon>
+          <extrude>0</extrude><altitudeMode>clampToGround</altitudeMode>
+          <outerBoundaryIs><LinearRing><coordinates> 8.108502673000034,48.81478767206539,0 8.108456786000033,48.81499918406536,0 8.108892708000042,48.81654017006537,0 8.109145083000044,48.8177336470654,0 8.109879267000053,48.81750704006539,0 8.109764551000069,48.81732575306541,0 8.109328629000061,48.81708403706541,0 8.109443345000047,48.81629845006541,0 8.110223415000064,48.81512004706536,0 8.108502673000034,48.81478767206539,0 8.108502673000034,48.81478767206539,0</coordinates></LinearRing></outerBoundaryIs>
+        </Polygon>
+    </Placemark>
+    <Placemark id="ID_00002">
+      <name></name>
+      <snippet></snippet>
+      <description><![CDATA[<html><body><table border="1"><tr><th>Field Name</th><th>Field Value</th></tr><tr><td>globalid</td><td>{93679B8A-69A6-4F53-8D50-D31531474E83}</td></tr><tr><td>Shape__Area</td><td>0.000011</td></tr><tr><td>Shape__Length</td><td>0.027941</td></tr><tr><td>CreationDate</td><td>6/29/2025 9:26:04.342 AM</td></tr><tr><td>EditDate</td><td>6/29/2025 9:26:04.342 AM</td></tr><tr><td>Anmeldeformular</td><td>Anmeldung</td></tr><tr><td>Datum_Mahd</td><td>6/30/2025 10:00:00 AM</td></tr><tr><td>Geplantes_Datum_Mahd</td><td>Null</td></tr><tr><td>Weiter_Angaben_Datum</td><td>Null</td></tr><tr><td>Gemarkung</td><td>Hügelsheim</td></tr><tr><td>Schlag_Flurstueck</td><td>Grund Jägerkopf</td></tr><tr><td>Bemerkung_Lage</td><td>Null</td></tr><tr><td>Antragsteller_Name</td><td>Hartmut</td></tr><tr><td>Antragsteller_Handy</td><td>016098951358</td></tr><tr><td>Antragsteller_Whatsapp</td><td>Ja</td></tr><tr><td>Antragsteller_Telefon</td><td>Null</td></tr><tr><td>Antragsteller_Email</td><td>hartmut.roesinger@t-online.de</td></tr><tr><td>Antragsteller_Taetigkeit</td><td>Landwirt</td></tr><tr><td>Sonstige_Taetigkeit</td><td>Null</td></tr><tr><td>Bekanntgabe_Kitzrettung</td><td>Ja</td></tr><tr><td>Datenschutz</td><td>Zustimmen</td></tr><tr><td>Kontaktaufnahme_am</td><td>Null</td></tr><tr><td>erledigt_am</td><td>Null</td></tr><tr><td>erledigt</td><td>Null</td></tr><tr><td>Flaechendefinition</td><td>Null</td></tr><tr><td>fl_che_geplant</td><td>Null</td></tr><tr><td>nachname</td><td>Rösinger</td></tr><tr><td>name_des_jagdp_chters_der_bei_d</td><td>Peter jehle</td></tr></table></body></html>]]></description>
+      <styleUrl>#PolyStyle00</styleUrl>
+        <Polygon>
+          <extrude>0</extrude><altitudeMode>clampToGround</altitudeMode>
+          <outerBoundaryIs><LinearRing><coordinates> 8.107624787000075,48.81244326506538,0 8.108152482000037,48.8120202190654,0 8.109070211000073,48.81212598106536,0 8.110286202000054,48.81167271406535,0 8.110286202000054,48.81141586206535,0 8.109827338000059,48.81168782306535,0 8.108634290000055,48.81180869506538,0 8.10861134600003,48.81159717006538,0 8.108611346000032,48.81109857106534,0 8.109620849000066,48.81026756306537,0 8.109322587000067,48.80988982706536,0 8.108198368000046,48.80963296506534,0 8.107877163000069,48.80908901806535,0 8.106730001000074,48.81017690606532,0 8.105720499000027,48.81115900806535,0 8.105261635000033,48.81091726106534,0 8.10597287500002,48.81044887506537,0 8.105330464000074,48.81004092206533,0 8.104917486000033,48.81059996806537,0 8.104160360000037,48.81017690606532,0 8.103059085000041,48.81117411706536,0 8.104481565000071,48.81144608006534,0 8.104412735000039,48.81161227906539,0 8.10344912000005,48.81192956606536,0 8.102852596000048,48.81233750406539,0 8.103678552000078,48.81223174206536,0 8.105605783000044,48.81159717006538,0 8.106110534000038,48.81186913006535,0 8.105261635000032,48.81220152506538,0 8.105514010000036,48.81250370006533,0 8.10583521600006,48.81251880806536,0 8.106661172000031,48.81186913006535,0 8.107624787000075,48.81244326506538,0 8.107624787000075,48.81244326506538,0</coordinates></LinearRing></outerBoundaryIs>
+        </Polygon>
+    </Placemark>
+    <Placemark id="ID_00003">
+      <name></name>
+      <snippet></snippet>
+      <description><![CDATA[<html><body><table border="1"><tr><th>Field Name</th><th>Field Value</th></tr><tr><td>globalid</td><td>{6128870C-BDC3-45DD-8C6A-1A41A0EA2BC2}</td></tr><tr><td>Shape__Area</td><td>0.000007</td></tr><tr><td>Shape__Length</td><td>0.0152</td></tr><tr><td>CreationDate</td><td>6/29/2025 9:30:08.558 AM</td></tr><tr><td>EditDate</td><td>6/29/2025 9:30:08.558 AM</td></tr><tr><td>Anmeldeformular</td><td>Anmeldung</td></tr><tr><td>Datum_Mahd</td><td>6/30/2025 10:00:00 AM</td></tr><tr><td>Geplantes_Datum_Mahd</td><td>Null</td></tr><tr><td>Weiter_Angaben_Datum</td><td>Null</td></tr><tr><td>Gemarkung</td><td>Hügelsheim</td></tr><tr><td>Schlag_Flurstueck</td><td>Röhricht im Wörth</td></tr><tr><td>Bemerkung_Lage</td><td>Null</td></tr><tr><td>Antragsteller_Name</td><td>Hartmut</td></tr><tr><td>Antragsteller_Handy</td><td>016098951358</td></tr><tr><td>Antragsteller_Whatsapp</td><td>Ja</td></tr><tr><td>Antragsteller_Telefon</td><td>Null</td></tr><tr><td>Antragsteller_Email</td><td>hartmut.roesinger@t-online.de</td></tr><tr><td>Antragsteller_Taetigkeit</td><td>Landwirt</td></tr><tr><td>Sonstige_Taetigkeit</td><td>Null</td></tr><tr><td>Bekanntgabe_Kitzrettung</td><td>Ja</td></tr><tr><td>Datenschutz</td><td>Zustimmen</td></tr><tr><td>Kontaktaufnahme_am</td><td>Null</td></tr><tr><td>erledigt_am</td><td>Null</td></tr><tr><td>erledigt</td><td>Null</td></tr><tr><td>Flaechendefinition</td><td>Null</td></tr><tr><td>fl_che_geplant</td><td>Null</td></tr><tr><td>nachname</td><td>Rösinger</td></tr><tr><td>name_des_jagdp_chters_der_bei_d</td><td>Peter jehle</td></tr></table></body></html>]]></description>
+      <styleUrl>#PolyStyle00</styleUrl>
+        <Polygon>
+          <extrude>0</extrude><altitudeMode>clampToGround</altitudeMode>
+          <outerBoundaryIs><LinearRing><coordinates> 8.118054579000045,48.81178625006537,0 8.119291667000027,48.81037209506533,0 8.11896488900004,48.80820467006535,0 8.119315008000058,48.80599103306533,0 8.118287992000035,48.80628311606537,0 8.118404698000063,48.80674429606537,0 8.118171285000074,48.80732845106533,0 8.117797825000025,48.80831227506534,0 8.117260976000068,48.80906550206536,0 8.117541071000062,48.81020300806539,0 8.118101261000049,48.81046432306535,0 8.117517730000031,48.81124826106536,0 8.116864174000055,48.81166328206535,0 8.118054579000045,48.81178625006537,0 8.118054579000045,48.81178625006537,0</coordinates></LinearRing></outerBoundaryIs>
+        </Polygon>
+    </Placemark>
+    <Placemark id="ID_00004">
+      <name></name>
+      <snippet></snippet>
+      <description><![CDATA[<html><body><table border="1"><tr><th>Field Name</th><th>Field Value</th></tr><tr><td>globalid</td><td>{36F3DB29-F136-470B-8786-ECC0F2E24148}</td></tr><tr><td>Shape__Area</td><td>0.000001</td></tr><tr><td>Shape__Length</td><td>0.006572</td></tr><tr><td>CreationDate</td><td>6/30/2025 2:11:54.161 PM</td></tr><tr><td>EditDate</td><td>6/30/2025 2:11:54.161 PM</td></tr><tr><td>Anmeldeformular</td><td>Anmeldung</td></tr><tr><td>Datum_Mahd</td><td>7/4/2025 10:00:00 AM</td></tr><tr><td>Geplantes_Datum_Mahd</td><td>Null</td></tr><tr><td>Weiter_Angaben_Datum</td><td>Null</td></tr><tr><td>Gemarkung</td><td>Gernsbach</td></tr><tr><td>Schlag_Flurstueck</td><td>795 bis 801/2</td></tr><tr><td>Bemerkung_Lage</td><td>Null</td></tr><tr><td>Antragsteller_Name</td><td>Otto</td></tr><tr><td>Antragsteller_Handy</td><td>01703482524</td></tr><tr><td>Antragsteller_Whatsapp</td><td>Ja</td></tr><tr><td>Antragsteller_Telefon</td><td>Null</td></tr><tr><td>Antragsteller_Email</td><td>otto-hecker@t-online.de</td></tr><tr><td>Antragsteller_Taetigkeit</td><td>Landwirt</td></tr><tr><td>Sonstige_Taetigkeit</td><td>Null</td></tr><tr><td>Bekanntgabe_Kitzrettung</td><td>Nein</td></tr><tr><td>Datenschutz</td><td>Zustimmen</td></tr><tr><td>Kontaktaufnahme_am</td><td>Null</td></tr><tr><td>erledigt_am</td><td>Null</td></tr><tr><td>erledigt</td><td>Null</td></tr><tr><td>Flaechendefinition</td><td>Null</td></tr><tr><td>fl_che_geplant</td><td>Null</td></tr><tr><td>nachname</td><td>Hecker</td></tr><tr><td>name_des_jagdp_chters_der_bei_d</td><td>Dr. Schröder</td></tr></table></body></html>]]></description>
+      <styleUrl>#PolyStyle00</styleUrl>
+        <Polygon>
+          <extrude>0</extrude><altitudeMode>clampToGround</altitudeMode>
+          <outerBoundaryIs><LinearRing><coordinates> 8.336372410000026,48.77348919506522,0 8.334283664000054,48.77336612506518,0 8.333509030000073,48.77418658706522,0 8.336517654000033,48.77376724206521,0 8.336372410000026,48.77348919506522,0 8.336372410000026,48.77348919506522,0</coordinates></LinearRing></outerBoundaryIs>
+        </Polygon>
+    </Placemark>
+    <Placemark id="ID_00005">
+      <name></name>
+      <snippet></snippet>
+      <description><![CDATA[<html><body><table border="1"><tr><th>Field Name</th><th>Field Value</th></tr><tr><td>globalid</td><td>{71979C39-70AC-458D-8ADE-B777F0B0F875}</td></tr><tr><td>Shape__Area</td><td>0.000005</td></tr><tr><td>Shape__Length</td><td>0.009525</td></tr><tr><td>CreationDate</td><td>6/30/2025 2:16:11.388 PM</td></tr><tr><td>EditDate</td><td>6/30/2025 2:16:11.388 PM</td></tr><tr><td>Anmeldeformular</td><td>Anmeldung</td></tr><tr><td>Datum_Mahd</td><td>7/4/2025 10:00:00 AM</td></tr><tr><td>Geplantes_Datum_Mahd</td><td>Null</td></tr><tr><td>Weiter_Angaben_Datum</td><td>Null</td></tr><tr><td>Gemarkung</td><td>Gernsbach</td></tr><tr><td>Schlag_Flurstueck</td><td>806- 841</td></tr><tr><td>Bemerkung_Lage</td><td>Null</td></tr><tr><td>Antragsteller_Name</td><td>Otto</td></tr><tr><td>Antragsteller_Handy</td><td>01703482524</td></tr><tr><td>Antragsteller_Whatsapp</td><td>Ja</td></tr><tr><td>Antragsteller_Telefon</td><td>Null</td></tr><tr><td>Antragsteller_Email</td><td>otto-hecker@t-online.de</td></tr><tr><td>Antragsteller_Taetigkeit</td><td>Landwirt</td></tr><tr><td>Sonstige_Taetigkeit</td><td>Null</td></tr><tr><td>Bekanntgabe_Kitzrettung</td><td>Nein</td></tr><tr><td>Datenschutz</td><td>Zustimmen</td></tr><tr><td>Kontaktaufnahme_am</td><td>Null</td></tr><tr><td>erledigt_am</td><td>Null</td></tr><tr><td>erledigt</td><td>Null</td></tr><tr><td>Flaechendefinition</td><td>Null</td></tr><tr><td>fl_che_geplant</td><td>Null</td></tr><tr><td>nachname</td><td>Hecker</td></tr><tr><td>name_des_jagdp_chters_der_bei_d</td><td>Dr. Schröder</td></tr></table></body></html>]]></description>
+      <styleUrl>#PolyStyle00</styleUrl>
+        <Polygon>
+          <extrude>0</extrude><altitudeMode>clampToGround</altitudeMode>
+          <outerBoundaryIs><LinearRing><coordinates> 8.333436078000034,48.77586337006522,0 8.336554666000042,48.77561460506519,0 8.336757926000075,48.77392680406517,0 8.333598686000071,48.77440903906523,0 8.333401234000066,48.77486830606522,0 8.333378004000053,48.77556102506521,0 8.333436078000034,48.77586337006522,0 8.333436078000034,48.77586337006522,0</coordinates></LinearRing></outerBoundaryIs>
+        </Polygon>
+    </Placemark>
+  </Folder>
+  <Style id="PolyStyle00">
+    <LabelStyle>
+      <color>00000000</color>
+      <scale>0.000000</scale>
+    </LabelStyle>
+    <LineStyle>
+      <color>ffffb200</color>
+      <width>2.000000</width>
+    </LineStyle>
+    <PolyStyle>
+      <color>30ffb200</color>
+      <outline>1</outline>
+    </PolyStyle>
+  </Style>
+</Document>
+</kml>
