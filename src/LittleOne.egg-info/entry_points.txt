@@ -1,0 +1,2 @@
+[console_scripts]
+kmz2dji = LittleOne.cli:app
