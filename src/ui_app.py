@@ -262,7 +262,7 @@ LANGUAGES = {
         "overlap_unit": "%",
         "safe_height": "Turvallinen lähtökorkeus",
         "safe_height_unit": "m",
-        "drone": "Droni",
+        "drone": "Drooni",
         "action": "Lopetustoiminto",
         "speed": "Nopeus",
         "speed_unit": "m/s",
@@ -633,13 +633,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.optimize_direction_check = QtWidgets.QCheckBox(
             self.strings["optimize_dir"]
         )
-        self.optimize_direction_check.setChecked(False)
+        self.optimize_direction_check.setChecked(True)
         opt_layout.addWidget(self.optimize_direction_check)
 
         self.elevation_optimize_check = QtWidgets.QCheckBox(
             self.strings["optimize_elev"]
         )
-        self.elevation_optimize_check.setChecked(True)
+        self.elevation_optimize_check.setChecked(False)
         opt_layout.addWidget(self.elevation_optimize_check)
 
         self.optimize_group.setLayout(opt_layout)
@@ -2188,8 +2188,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.action_combo.setCurrentText("Rückkehrfunktion")
 
         # Checkboxes
-        self.optimize_direction_check.setChecked(False)
-        self.elevation_optimize_check.setChecked(True)
+        self.optimize_direction_check.setChecked(True)
+        self.elevation_optimize_check.setChecked(False)
 
         # File paths
         self.kmz_edit.clear()

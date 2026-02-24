@@ -14,10 +14,22 @@ Polygone rein → Geometrie normalisiert und DJI-ready raus
 1. **LittleOne.exe** herunterladen & starten (keine Installation!)
 2. KMZ/KML-Datei auswählen
 3. Ausgabeordner festlegen
-4. Drohnenmodell, Flughöhe & weitere Parameter setzen
-5. **Konvertieren** → Fertig!
+4. Optional: **Karte aktualisieren** und Flächen prüfen
+5. Drohnenmodell, Flughöhe & weitere Parameter setzen
+6. **Konvertieren** → Fertig!
 
 Die Dateien sind sofort in **DJI Pilot 2** importierbar.
+
+---
+
+## Neue Funktionen (Stand aktuell)
+
+- **Integrierte Satellitenkarte** direkt in der App
+- **Flächen im Popup ausschließen/wieder aufnehmen**
+  - ausgeschlossene Flächen werden grau dargestellt
+  - ausgeschlossene Flächen werden nicht konvertiert
+- **Update-Prüfung im Menü**: `Einstellungen → Nach Updates suchen`
+- **Windows-Icon integriert** (Titelleiste + EXE)
 
 ---
 
@@ -70,6 +82,11 @@ Die KML-Dateien können direkt in DJI Pilot 2 als **Missionsfläche** importiert
 | **Fluggeschwindigkeit** | Für Zeitmessungen | 10–15 m/s empfohlen |
 | **Sicherheitsmarge** | Puffer um Polygonkanten | 5–10 m typisch |
 | **Angle Optimization** | Orientierung optimieren (falls berechnbar) | Nicht bei allen Gebieten möglich |
+| **Elevation Optimization** | Höhenoptimierung (optional) | Standard: aus |
+
+**Standard-Optimierungen:**
+- Winkeloptimierung: **an**
+- Elevation-Optimierung: **aus**
 
 ### Schritt-für-Schritt
 
@@ -116,6 +133,15 @@ Alle Menüs, Felder & Meldungen passen sich automatisch an.
 - **Imperial** (ft, ft/s) – USA
 - **Metric + kmh** (m, km/h) – Deutschland, Österreich
 - **Nautical** (m, kts) – Maritim/Luftfahrt
+
+### Updates
+- Menüpunkt: **Einstellungen → Nach Updates suchen**
+- Die App-Version kommt aus `src/LittleOne/__init__.py` (`__version__`)
+- Empfohlener Ablauf vor Release:
+  1. `__version__` erhöhen
+  2. EXE neu bauen
+  3. GitHub-Release mit passendem Tag erstellen (z. B. `v0.2.1`)
+  4. EXE als Asset hochladen
 
 ---
 
@@ -171,6 +197,7 @@ LittleOne versucht zu korrigieren, aber bei sehr komplexen Gebieten kann eine ma
 - **Installation:** Keine – einfach starten
 - **System:** Windows 10/11 64-Bit
 - **Admin-Rechte:** Nicht nötig (außer für schreibgeschützte Ordner)
+- **Weitergabe im Team:** EXE versenden, lokal starten oder Desktop-Verknüpfung erstellen
 
 ### Option B: Python Source Code
 Für Entwickler:
