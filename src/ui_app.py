@@ -1,4 +1,4 @@
-from PySide6 import QtWidgets, QtGui, QtCore
+from PySide6 import QtWidgets, QtGui, QtCore, QtWebChannel
 
 try:
     from PySide6 import QtWebEngineWidgets
@@ -18,9 +18,22 @@ import json
 import hashlib
 import subprocess
 import webbrowser
+import urllib.request
+import urllib.error
+import tempfile
 
 ENGINE_IMPORT_ERROR = None
 optimize_angle_mod = None
+APP_VERSION = "0.0.0"
+GITHUB_REPO = "messmersvenpriv/LittleOne"
+
+try:
+    from LittleOne import __version__ as PACKAGE_VERSION
+
+    APP_VERSION = str(PACKAGE_VERSION)
+except Exception:
+    pass
+
 try:
     from LittleOne import kmz_reader, kml_writer, dji_rules, optimize_angle
 
@@ -51,7 +64,7 @@ THEMES = {
 
 LANGUAGES = {
     "Deutsch": {
-        "title": "Kitzrettung – DJI Drohnen-Missionsplaner",
+        "title": "LittleOne - Datenkonvertierungssoftware der Kitzrettung Rastatt Baden-Baden (warum liest du das bis hier?)",
         "file": "Datei",
         "settings": "Einstellungen",
         "help": "Hilfe",
@@ -112,7 +125,7 @@ LANGUAGES = {
         "cancel": "Abbrechen",
     },
     "English": {
-        "title": "Kitzrettung – DJI Drone Mission Planner",
+        "title": "LittleOne - Datenkonvertierungssoftware der Kitzrettung Rastatt Baden-Baden (warum liest du das bis hier?)",
         "file": "File",
         "settings": "Settings",
         "help": "Help",
@@ -173,7 +186,7 @@ LANGUAGES = {
         "cancel": "Cancel",
     },
     "Français": {
-        "title": "Kitzrettung – Planificateur de Missions DJI",
+        "title": "LittleOne - Datenkonvertierungssoftware der Kitzrettung Rastatt Baden-Baden (warum liest du das bis hier?)",
         "file": "Fichier",
         "settings": "Paramètres",
         "help": "Aide",
@@ -234,7 +247,7 @@ LANGUAGES = {
         "cancel": "Annuler",
     },
     "Suomi": {
-        "title": "Kitzrettung – DJI Drone Mission Planner",
+        "title": "LittleOne - Datenkonvertierungssoftware der Kitzrettung Rastatt Baden-Baden (warum liest du das bis hier?)",
         "file": "Tiedosto",
         "settings": "Asetukset",
         "help": "Ohje",
@@ -449,11 +462,27 @@ class SettingsDialog(QtWidgets.QDialog):
         )
 
 
+class MapBridge(QtCore.QObject):
+    def __init__(self, window):
+        super().__init__(window)
+        self.window = window
+
+    @QtCore.Slot(str)
+    def toggleArea(self, area_key: str):
+        self.window.toggle_area_exclusion(area_key)
+
+
 class MainWindow(QtWidgets.QMainWindow):
+    def _resource_path(self, relative_path: str) -> Path:
+        base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
+        return base / relative_path
+
     def __init__(self):
         super().__init__()
         self.default_map_center = [48.77, 8.23]  # Landkreis Rastatt
         self.default_map_zoom = 11
+        self.excluded_area_keys = set()
+        self.current_map_html_path = None
         self.theme = self._detect_system_theme()
         self.language = "Deutsch"
         self.units = "Metric"
@@ -462,9 +491,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle(self.strings["title"])
         self.resize(1200, 800)
 
-        ico_path = Path(__file__).parent.parent / "assets" / "app.ico"
+        ico_path = self._resource_path("assets/app.ico")
         if ico_path.exists():
-            self.setWindowIcon(QtGui.QIcon(str(ico_path)))
+            icon = QtGui.QIcon(str(ico_path))
+            app = QtWidgets.QApplication.instance()
+            if isinstance(app, QtWidgets.QApplication):
+                app.setWindowIcon(icon)
+            self.setWindowIcon(icon)
 
         # --- Menübar ---
         self._create_menu_bar()
@@ -480,6 +513,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # --- Oberes Panel: Eingabeberereich ---
         input_panel = QtWidgets.QWidget()
+        input_panel.setObjectName("inputPanel")
         input_layout = QtWidgets.QVBoxLayout(input_panel)
 
         # Formular
@@ -677,6 +711,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.map_view = None
         self.map_fallback_label = None
+        self.map_bridge = None
+        self.web_channel = None
         if WEBENGINE_AVAILABLE and QtWebEngineWidgets is not None:
             self.map_view = QtWebEngineWidgets.QWebEngineView(self.map_panel)
             if QtWebEngineCore is not None:
@@ -689,6 +725,10 @@ class MainWindow(QtWidgets.QMainWindow):
                     QtWebEngineCore.QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls,
                     True,
                 )
+            self.map_bridge = MapBridge(self)
+            self.web_channel = QtWebChannel.QWebChannel(self.map_view.page())
+            self.web_channel.registerObject("bridge", self.map_bridge)
+            self.map_view.page().setWebChannel(self.web_channel)
             map_layout.addWidget(self.map_view)
         else:
             self.map_fallback_label = QtWidgets.QLabel(
@@ -791,6 +831,10 @@ class MainWindow(QtWidgets.QMainWindow):
             action.triggered.connect(lambda checked, u=unit_key: self._set_units(u))
             self.units_actions[unit_key] = action
 
+        settings_menu.addSeparator()
+        update_action = settings_menu.addAction("Nach Updates suchen")
+        update_action.triggered.connect(self.check_for_updates)
+
         # Help menu
         help_menu = menubar.addMenu(self.strings["help"])
 
@@ -802,7 +846,7 @@ class MainWindow(QtWidgets.QMainWindow):
         doc_action.triggered.connect(self.open_documentation)
 
         # GitHub
-        github_action = help_menu.addAction("🔗 GitHub Repository")
+        github_action = help_menu.addAction("GitHub Repository")
         github_action.triggered.connect(self.open_github)
 
         # About
@@ -816,7 +860,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def open_easter_egg(self):
         """Open the ultimate best help source 🎵"""
-        webbrowser.open("https://www.youtube.com/watch?v=2qBlE2-WL60&t=3s")
+        webbrowser.open(
+            "https://www.youtube.com/watch?v=xMHJGd3wwZk&list=RDxMHJGd3wwZk&start_radio=1"
+        )
 
     def show_settings(self):
         dlg = SettingsDialog(self, self.theme, self.language, self.units, self.strings)
@@ -969,6 +1015,11 @@ class MainWindow(QtWidgets.QMainWindow):
         QMainWindow, QWidget {{
             background-color: {bg};
             color: {fg};
+        }}
+        QWidget#inputPanel {{
+            background-color: {bg};
+            border: 1px solid {border};
+            border-radius: 8px;
         }}
         QLineEdit, QPlainTextEdit, QSpinBox {{
             background-color: {bg};
@@ -1227,6 +1278,128 @@ class MainWindow(QtWidgets.QMainWindow):
                 f"Bitte besuche manuell:\n{github_url}",
             )
 
+    def _parse_version(self, text: str):
+        nums = [int(n) for n in re.findall(r"\d+", str(text))[:4]]
+        while len(nums) < 4:
+            nums.append(0)
+        return tuple(nums)
+
+    def _fetch_latest_release(self):
+        api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+        req = urllib.request.Request(
+            api_url,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "LittleOne-Updater",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            data = resp.read().decode("utf-8", errors="replace")
+        return json.loads(data)
+
+    def _pick_windows_asset(self, release_json):
+        assets = release_json.get("assets") or []
+        exe_assets = [
+            a for a in assets if str(a.get("name", "")).lower().endswith(".exe")
+        ]
+        if not exe_assets:
+            return None
+        preferred = sorted(exe_assets, key=lambda x: len(str(x.get("name", ""))))
+        return preferred[0]
+
+    def check_for_updates(self):
+        try:
+            self.status.showMessage("Prüfe auf Updates ...")
+            QtCore.QCoreApplication.processEvents()
+
+            release = self._fetch_latest_release()
+            latest_tag = str(release.get("tag_name") or "").strip()
+            latest_ver = self._parse_version(latest_tag)
+            current_ver = self._parse_version(APP_VERSION)
+
+            if latest_ver <= current_ver:
+                QtWidgets.QMessageBox.information(
+                    self,
+                    "Updates",
+                    f"Du nutzt bereits die aktuelle Version ({APP_VERSION}).",
+                )
+                self.status.showMessage("Keine Updates verfügbar")
+                return
+
+            release_name = release.get("name") or latest_tag or "Neue Version"
+            release_page = (
+                release.get("html_url") or f"https://github.com/{GITHUB_REPO}/releases"
+            )
+            asset = self._pick_windows_asset(release)
+
+            msg = (
+                f"Update verfügbar: {release_name}\n"
+                f"Aktuell: {APP_VERSION}\n"
+                f"Neu: {latest_tag or 'unbekannt'}\n\n"
+            )
+
+            can_auto_install = bool(
+                asset and getattr(sys, "frozen", False) and sys.platform == "win32"
+            )
+            if can_auto_install:
+                msg += "Jetzt herunterladen und Update starten?"
+            else:
+                msg += "Download-Seite öffnen?"
+
+            btn = QtWidgets.QMessageBox.question(
+                self,
+                "Update verfügbar",
+                msg,
+                QtWidgets.QMessageBox.StandardButton.Yes
+                | QtWidgets.QMessageBox.StandardButton.No,
+            )
+            if btn != QtWidgets.QMessageBox.StandardButton.Yes:
+                self.status.showMessage("Updateprüfung beendet")
+                return
+
+            if can_auto_install:
+                if asset is None:
+                    webbrowser.open(release_page)
+                    self.status.showMessage("Release-Seite geöffnet")
+                    return
+                url = asset.get("browser_download_url")
+                name = asset.get("name") or "LittleOne-Update.exe"
+                if not url:
+                    webbrowser.open(release_page)
+                    self.status.showMessage("Release-Seite geöffnet")
+                    return
+
+                target = Path(tempfile.gettempdir()) / name
+                self.status.showMessage("Lade Update herunter ...")
+                QtCore.QCoreApplication.processEvents()
+                urllib.request.urlretrieve(url, str(target))
+
+                QtWidgets.QMessageBox.information(
+                    self,
+                    "Update",
+                    "Update wurde geladen. Der Installer wird jetzt gestartet.",
+                )
+                subprocess.Popen([str(target)])
+                QtWidgets.QApplication.quit()
+                return
+
+            webbrowser.open(release_page)
+            self.status.showMessage("Release-Seite geöffnet")
+        except urllib.error.URLError as ex:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Updatefehler",
+                f"Konnte Update-Informationen nicht laden:\n{ex}",
+            )
+            self.status.showMessage("Updateprüfung fehlgeschlagen")
+        except Exception as ex:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Updatefehler",
+                f"Fehler bei Updateprüfung:\n{ex}",
+            )
+            self.status.showMessage("Updateprüfung fehlgeschlagen")
+
     # --- Logik: sichere Starthöhe folgt der Flughöhe nach oben ---
     def _sync_safe_with_alt(self, alt_value: int):
         if self.safe_spin.value() < alt_value:
@@ -1244,6 +1417,7 @@ class MainWindow(QtWidgets.QMainWindow):
         dlg.setNameFilters(["KMZ (*.kmz)", "KML (*.kml)", "All Files (*.*)"])
         if dlg.exec():
             self.kmz_edit.setText(dlg.selectedFiles()[0])
+            self.excluded_area_keys.clear()
 
     def pick_out(self):
         dir_ = QtWidgets.QFileDialog.getExistingDirectory(
@@ -1289,10 +1463,22 @@ class MainWindow(QtWidgets.QMainWindow):
             rings.append([[float(lat), float(lon)] for lon, lat in ring.coords])
         return rings
 
-    def _collect_map_items(self, features, summaries):
+    def _make_area_key(self, applicant: str, label: str, rings) -> str:
+        payload = {
+            "applicant": str(applicant or ""),
+            "label": str(label or ""),
+            "rings": [
+                [[round(float(pt[0]), 7), round(float(pt[1]), 7)] for pt in ring]
+                for ring in rings
+            ],
+        }
+        raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        return hashlib.md5(raw.encode("utf-8", errors="ignore")).hexdigest()[:16]
+
+    def _collect_geometry_entries(self, features, summaries):
         from shapely.geometry import Polygon, MultiPolygon
 
-        items = []
+        entries = []
         for feat, summary in zip(features, summaries):
             geom = feat.geom
             if geom is None:
@@ -1306,26 +1492,51 @@ class MainWindow(QtWidgets.QMainWindow):
             if not applicant:
                 applicant = str(summary.antragsteller_name or feat.name or "Unbekannt")
 
-            label = str(summary.schlag_flurstueck or feat.name or "Fläche")
+            base_label = str(summary.schlag_flurstueck or feat.name or "Fläche")
 
-            if isinstance(geom, Polygon):
-                items.append(
+            def _append(poly, label):
+                rings = self._to_leaflet_rings(poly)
+                entries.append(
                     {
                         "applicant": applicant,
                         "label": label,
-                        "rings": self._to_leaflet_rings(geom),
+                        "rings": rings,
+                        "key": self._make_area_key(applicant, label, rings),
+                        "geom": poly,
+                        "summary": summary,
+                        "feature": feat,
                     }
                 )
+
+            if isinstance(geom, Polygon):
+                _append(geom, base_label)
             elif isinstance(geom, MultiPolygon):
                 for idx, poly in enumerate(geom.geoms, start=1):
-                    items.append(
-                        {
-                            "applicant": applicant,
-                            "label": f"{label}-{idx}",
-                            "rings": self._to_leaflet_rings(poly),
-                        }
-                    )
-        return items
+                    _append(poly, f"{base_label}-{idx}")
+        return entries
+
+    def _collect_map_items(self, features, summaries):
+        entries = self._collect_geometry_entries(features, summaries)
+        current_keys = {entry["key"] for entry in entries}
+        self.excluded_area_keys.intersection_update(current_keys)
+        return [
+            {
+                "applicant": entry["applicant"],
+                "label": entry["label"],
+                "rings": entry["rings"],
+                "key": entry["key"],
+                "excluded": entry["key"] in self.excluded_area_keys,
+            }
+            for entry in entries
+        ]
+
+    def toggle_area_exclusion(self, area_key: str):
+        if area_key in self.excluded_area_keys:
+            self.excluded_area_keys.remove(area_key)
+            self.logln(f"Fläche wieder aktiviert: {area_key}")
+        else:
+            self.excluded_area_keys.add(area_key)
+            self.logln(f"Fläche ausgeschlossen: {area_key}")
 
     def _color_for_applicant(self, applicant: str) -> str:
         palette = [
@@ -1360,6 +1571,8 @@ class MainWindow(QtWidgets.QMainWindow):
         map_items_json = json.dumps(map_items, ensure_ascii=False)
         color_map_json = json.dumps(color_map, ensure_ascii=False)
         title_json = json.dumps(title, ensure_ascii=False)
+        remove_label = json.dumps("Fläche entfernen", ensure_ascii=False)
+        add_label = json.dumps("Fläche wieder aufnehmen", ensure_ascii=False)
         center = default_center or self.default_map_center
         center_json = json.dumps(center, ensure_ascii=False)
         return f"""<!doctype html>
@@ -1395,6 +1608,7 @@ class MainWindow(QtWidgets.QMainWindow):
   <div id=\"legend\"></div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src=\"qrc:///qtwebchannel/qwebchannel.js\"></script>
     <script>
         if (typeof window.L === 'undefined') {{
             const s = document.createElement('script');
@@ -1408,6 +1622,18 @@ class MainWindow(QtWidgets.QMainWindow):
     const colors = {color_map_json};
         const defaultCenter = {center_json};
         const defaultZoom = {int(default_zoom)};
+        const removeLabel = {remove_label};
+        const addLabel = {add_label};
+        const excluded = new Set(features.filter(f => !!f.excluded).map(f => f.key));
+        let bridge = null;
+        const layersByKey = new Map();
+        const featureByKey = new Map();
+
+        if (window.qt && typeof QWebChannel !== 'undefined') {{
+            new QWebChannel(qt.webChannelTransport, function(channel) {{
+                bridge = channel.objects.bridge || null;
+            }});
+        }}
 
         function escapeHtml(text) {{
             return String(text)
@@ -1432,6 +1658,63 @@ class MainWindow(QtWidgets.QMainWindow):
                 return;
             }}
 
+            function setLayerStyle(layer, key, baseColor) {{
+                if (excluded.has(key)) {{
+                    layer.setStyle({{
+                        color: '#888888',
+                        fillColor: '#9e9e9e',
+                        fillOpacity: 0.2,
+                        weight: 2,
+                        dashArray: '6,4'
+                    }});
+                }} else {{
+                    layer.setStyle({{
+                        color: baseColor,
+                        fillColor: baseColor,
+                        fillOpacity: 0.35,
+                        weight: 2,
+                        dashArray: null
+                    }});
+                }}
+            }}
+
+            function popupHtml(feature) {{
+                const isExcluded = excluded.has(feature.key);
+                const actionLabel = isExcluded ? addLabel : removeLabel;
+                const actionColor = isExcluded ? '#2e7d32' : '#b71c1c';
+                return `
+                    <b>${{escapeHtml(feature.label)}}</b><br>
+                    ${{escapeHtml(feature.applicant)}}<br><br>
+                    <button
+                        type="button"
+                        class="toggle-area-btn"
+                        data-key="${{encodeURIComponent(feature.key)}}"
+                        style="padding:6px 10px;border:1px solid #555;border-radius:4px;cursor:pointer;color:white;background:${{actionColor}};"
+                    >
+                        ${{escapeHtml(actionLabel)}}
+                    </button>
+                `;
+            }}
+
+            window.toggleArea = function(encodedKey) {{
+                const key = decodeURIComponent(encodedKey);
+                const feature = featureByKey.get(key);
+                const layer = layersByKey.get(key);
+                if (!feature || !layer) {{
+                    return;
+                }}
+                if (excluded.has(key)) {{
+                    excluded.delete(key);
+                }} else {{
+                    excluded.add(key);
+                }}
+                setLayerStyle(layer, key, colors[feature.applicant] || '#ff0000');
+                layer.setPopupContent(popupHtml(feature));
+                if (bridge && typeof bridge.toggleArea === 'function') {{
+                    bridge.toggleArea(key);
+                }}
+            }};
+
             const map = L.map('map', {{ zoomControl: true }});
             L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}', {{
                 attribution: 'Tiles © Esri'
@@ -1446,10 +1729,23 @@ class MainWindow(QtWidgets.QMainWindow):
                     fillColor: color,
                     fillOpacity: 0.35
                 }});
-                poly.bindPopup(
-                    '<b>' + escapeHtml(feature.label) + '</b><br>' +
-                    escapeHtml(feature.applicant)
-                );
+                featureByKey.set(feature.key, feature);
+                layersByKey.set(feature.key, poly);
+                setLayerStyle(poly, feature.key, color);
+                poly.bindPopup(popupHtml(feature));
+                poly.on('popupopen', function(e) {{
+                    const root = e.popup && e.popup.getElement ? e.popup.getElement() : null;
+                    if (!root) {{
+                        return;
+                    }}
+                    const btn = root.querySelector('.toggle-area-btn');
+                    if (!btn) {{
+                        return;
+                    }}
+                    btn.onclick = function() {{
+                        window.toggleArea(btn.dataset.key || '');
+                    }};
+                }});
                 poly.addTo(group);
             }}
 
@@ -1516,20 +1812,26 @@ class MainWindow(QtWidgets.QMainWindow):
         if not html_path.exists():
             self._write_default_map()
             return
-        self._open_map_preview(
-            html_path,
-            fallback_to_browser=False,
-            log_open=False,
-        )
+        if self.current_map_html_path is None:
+            self._open_map_preview(
+                html_path,
+                fallback_to_browser=False,
+                log_open=False,
+            )
 
     def _open_map_preview(
         self,
         html_path: Path,
         fallback_to_browser: bool = True,
         log_open: bool = True,
+        force_reload: bool = False,
     ):
+        resolved_path = str(html_path.resolve())
         if self.map_view is not None:
-            self.map_view.setUrl(QtCore.QUrl.fromLocalFile(str(html_path.resolve())))
+            if (not force_reload) and self.current_map_html_path == resolved_path:
+                return
+            self.current_map_html_path = resolved_path
+            self.map_view.setUrl(QtCore.QUrl.fromLocalFile(resolved_path))
             if log_open:
                 self.logln(
                     f"{self.strings.get('map_opened', 'Satellitenkarte geöffnet')}: GUI"
@@ -1610,7 +1912,7 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             html_path = self._save_map_html(html)
 
-            self._open_map_preview(html_path)
+            self._open_map_preview(html_path, force_reload=True)
             self.logln(
                 f"{self.strings.get('map_saved', 'Karte gespeichert')}: {html_path}"
             )
@@ -1703,7 +2005,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
             summaries = kmz.summarize_features(features)
 
-            from shapely.geometry import Polygon, MultiPolygon
+            entries = self._collect_geometry_entries(features, summaries)
+            current_keys = {entry["key"] for entry in entries}
+            self.excluded_area_keys.intersection_update(current_keys)
 
             polys = []
             names = []
@@ -1748,42 +2052,36 @@ class MainWindow(QtWidgets.QMainWindow):
                 return f"{d.day:02d}{mon.get(d.month, 'Mon')}"
 
             self.logln("Extrahiere Polygone...")
-            for feat, summary in zip(features, summaries):
-                geom = feat.geom
-                if geom is None:
+            skipped = 0
+            for entry in entries:
+                if entry["key"] in self.excluded_area_keys:
+                    skipped += 1
                     continue
+                feat = entry["feature"]
+                summary = entry["summary"]
+                geom = entry["geom"]
 
                 nachname = _clean(summary.antragsteller_name or "unbekannt")
                 datum = _fmt_short_date(summary.datum_mahd)
-                schlag = _clean(summary.schlag_flurstueck or feat.name or basename)
+                schlag = _clean(
+                    entry["label"] or summary.schlag_flurstueck or feat.name or basename
+                )
 
                 base_file_name = f"{nachname}-{datum}-{schlag}"
 
-                if isinstance(geom, Polygon):
-                    polys.append(geom)
-                    names.append(base_file_name)
-                    if (
-                        self.optimize_direction_check.isChecked()
-                        and optimizer is not None
-                    ):
-                        directions.append(
-                            int(round(float(optimizer.mrr_angle_deg(geom)))) % 180
-                        )
-                    else:
-                        directions.append(0)
-                elif isinstance(geom, MultiPolygon):
-                    for idx, poly in enumerate(geom.geoms, start=1):
-                        polys.append(poly)
-                        names.append(f"{base_file_name}-{idx}")
-                        if (
-                            self.optimize_direction_check.isChecked()
-                            and optimizer is not None
-                        ):
-                            directions.append(
-                                int(round(float(optimizer.mrr_angle_deg(poly)))) % 180
-                            )
-                        else:
-                            directions.append(0)
+                polys.append(geom)
+                names.append(base_file_name)
+                if self.optimize_direction_check.isChecked() and optimizer is not None:
+                    directions.append(
+                        int(round(float(optimizer.mrr_angle_deg(geom)))) % 180
+                    )
+                else:
+                    directions.append(0)
+
+            if skipped > 0:
+                self.logln(
+                    f"ℹ {skipped} Fläche(n) ausgeschlossen und nicht konvertiert"
+                )
 
             if not polys:
                 self.logln("❌ Keine Polygone gefunden.")
@@ -1896,6 +2194,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # File paths
         self.kmz_edit.clear()
         self.out_edit.setText(str(Path.cwd() / "out"))
+        self.excluded_area_keys.clear()
 
         # Output
         self.output_label.clear()

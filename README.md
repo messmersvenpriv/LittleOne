@@ -97,7 +97,7 @@ Die KML-Dateien können direkt in DJI Pilot 2 als **Missionsfläche** importiert
 
 ---
 
-## 🔧 Einstellungen (Menü → Design/Sprache/Einheiten)
+## Einstellungen (Menü → Design/Sprache/Einheiten)
 
 ### Design (Theme)
 - **Light Mode**: Helles Design für tagsüber
