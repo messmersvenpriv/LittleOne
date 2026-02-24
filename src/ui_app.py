@@ -2,10 +2,12 @@ from PySide6 import QtWidgets, QtGui, QtCore
 
 try:
     from PySide6 import QtWebEngineWidgets
+    from PySide6 import QtWebEngineCore
 
     WEBENGINE_AVAILABLE = True
 except Exception:
     QtWebEngineWidgets = None
+    QtWebEngineCore = None
     WEBENGINE_AVAILABLE = False
 
 from pathlib import Path
@@ -473,8 +475,8 @@ class MainWindow(QtWidgets.QMainWindow):
         main_layout = QtWidgets.QVBoxLayout(central)
         main_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Splitter für Input oben, Output unten
-        splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
+        # Hauptaufteilung: links Eingaben, rechts Karte + Ausgabe
+        main_splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
 
         # --- Oberes Panel: Eingabeberereich ---
         input_panel = QtWidgets.QWidget()
@@ -621,7 +623,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.progress.setVisible(False)
         input_layout.addWidget(self.progress)
 
-        # --- Convert + Reset Buttons ---
+        # --- Buttons ---
         button_layout = QtWidgets.QHBoxLayout()
 
         self.convert_btn = QtWidgets.QPushButton(self.strings["convert"])
@@ -631,7 +633,6 @@ class MainWindow(QtWidgets.QMainWindow):
         font.setBold(True)
         self.convert_btn.setFont(font)
         self.convert_btn.clicked.connect(self.convert)
-        button_layout.addWidget(self.convert_btn, stretch=1)
 
         self.map_btn = QtWidgets.QPushButton(
             self.strings.get("map_refresh", "Karte aktualisieren")
@@ -641,7 +642,6 @@ class MainWindow(QtWidgets.QMainWindow):
         map_font.setPointSize(10)
         self.map_btn.setFont(map_font)
         self.map_btn.clicked.connect(self.show_satellite_map)
-        button_layout.addWidget(self.map_btn, stretch=0)
 
         self.reset_btn = QtWidgets.QPushButton(
             self.strings.get("reset", "Zurücksetzen")
@@ -651,7 +651,14 @@ class MainWindow(QtWidgets.QMainWindow):
         reset_font.setPointSize(10)
         self.reset_btn.setFont(reset_font)
         self.reset_btn.clicked.connect(self.reset_to_defaults)
-        button_layout.addWidget(self.reset_btn, stretch=0)
+
+        self.convert_btn.setMinimumWidth(180)
+        self.map_btn.setMinimumWidth(180)
+        self.reset_btn.setMinimumWidth(160)
+
+        button_layout.addWidget(self.convert_btn, stretch=2)
+        button_layout.addWidget(self.map_btn, stretch=1)
+        button_layout.addWidget(self.reset_btn, stretch=1)
         button_layout.setContentsMargins(0, 5, 0, 5)
 
         input_layout.addLayout(button_layout)
@@ -659,23 +666,29 @@ class MainWindow(QtWidgets.QMainWindow):
         # Add stretch to push content to top
         input_layout.addStretch()
 
-        splitter.addWidget(input_panel)
+        input_panel.setMinimumWidth(520)
+        main_splitter.addWidget(input_panel)
 
         # --- Mittleres Panel: Kartenansicht ---
         self.map_panel = QtWidgets.QWidget()
+        self.map_panel.setMinimumHeight(260)
         map_layout = QtWidgets.QVBoxLayout(self.map_panel)
         map_layout.setContentsMargins(0, 0, 0, 0)
-
-        self.map_panel_label = QtWidgets.QLabel(
-            self.strings.get("map_title", "Satellitenkarte")
-        )
-        self.map_panel_label.setObjectName("outputLabel")
-        map_layout.addWidget(self.map_panel_label)
 
         self.map_view = None
         self.map_fallback_label = None
         if WEBENGINE_AVAILABLE and QtWebEngineWidgets is not None:
             self.map_view = QtWebEngineWidgets.QWebEngineView(self.map_panel)
+            if QtWebEngineCore is not None:
+                map_settings = self.map_view.settings()
+                map_settings.setAttribute(
+                    QtWebEngineCore.QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls,
+                    True,
+                )
+                map_settings.setAttribute(
+                    QtWebEngineCore.QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls,
+                    True,
+                )
             map_layout.addWidget(self.map_view)
         else:
             self.map_fallback_label = QtWidgets.QLabel(
@@ -688,10 +701,17 @@ class MainWindow(QtWidgets.QMainWindow):
             self.map_fallback_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
             map_layout.addWidget(self.map_fallback_label)
 
-        splitter.addWidget(self.map_panel)
+        # Rechtes Panel: Karte oben, Ausgabe unten
+        right_panel = QtWidgets.QWidget()
+        right_layout = QtWidgets.QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+
+        right_splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
+        right_splitter.addWidget(self.map_panel)
 
         # --- Unteres Panel: Output/Logs ---
         output_panel = QtWidgets.QWidget()
+        output_panel.setMinimumHeight(95)
         output_layout = QtWidgets.QVBoxLayout(output_panel)
         output_layout.setContentsMargins(0, 0, 0, 0)
 
@@ -701,16 +721,26 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.log = QtWidgets.QPlainTextEdit()
         self.log.setReadOnly(True)
-        self.log.setMaximumHeight(250)
+        self.log.setMaximumHeight(160)
         output_layout.addWidget(self.log)
 
-        splitter.addWidget(output_panel)
-        splitter.setStretchFactor(0, 2)
-        splitter.setStretchFactor(1, 1)
-        splitter.setStretchFactor(2, 1)
+        right_splitter.addWidget(output_panel)
+        right_splitter.setStretchFactor(0, 5)
+        right_splitter.setStretchFactor(1, 1)
 
-        self.main_splitter = splitter
+        right_layout.addWidget(right_splitter)
+
+        right_panel.setMinimumWidth(520)
+        main_splitter.addWidget(right_panel)
+        main_splitter.setStretchFactor(0, 2)
+        main_splitter.setStretchFactor(1, 3)
+
+        self.main_splitter = main_splitter
+        self.right_splitter = right_splitter
         main_layout.addWidget(self.main_splitter)
+
+        self.main_splitter.setSizes([540, 900])
+        self.right_splitter.setSizes([560, 120])
 
         self.status = self.statusBar()
         self.status.showMessage(self.strings["ready"])
@@ -1122,7 +1152,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.map_btn.setText(self.strings.get("map_refresh", "Karte aktualisieren"))
         self.reset_btn.setText(self.strings.get("reset", "Zurücksetzen"))
 
-        self.map_panel_label.setText(self.strings.get("map_title", "Satellitenkarte"))
         if self.map_fallback_label is not None:
             self.map_fallback_label.setText(
                 self.strings.get(
@@ -1143,6 +1172,10 @@ class MainWindow(QtWidgets.QMainWindow):
         super().changeEvent(event)
         if event.type() == QtCore.QEvent.Type.WindowStateChange:
             self._update_map_panel_visibility()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_map_panel_visibility()
 
     def show_about(self):
         QtWidgets.QMessageBox.information(
@@ -1361,7 +1394,14 @@ class MainWindow(QtWidgets.QMainWindow):
   <div id=\"map\"></div>
   <div id=\"legend\"></div>
 
-  <script src=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.js\"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        if (typeof window.L === 'undefined') {{
+            const s = document.createElement('script');
+            s.src = 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js';
+            document.head.appendChild(s);
+        }}
+    </script>
   <script>
     const title = {title_json};
     const features = {map_items_json};
@@ -1369,50 +1409,71 @@ class MainWindow(QtWidgets.QMainWindow):
         const defaultCenter = {center_json};
         const defaultZoom = {int(default_zoom)};
 
-    const map = L.map('map', {{ zoomControl: true }});
-    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}', {{
-      attribution: 'Tiles © Esri'
-    }}).addTo(map);
+        function escapeHtml(text) {{
+            return String(text)
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#039;');
+        }}
 
-    function escapeHtml(text) {{
-      return String(text)
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#039;');
-    }}
+        function renderLeafletMap() {{
+            if (typeof window.L === 'undefined') {{
+                const mapNode = document.getElementById('map');
+                if (mapNode) {{
+                    mapNode.style.display = 'flex';
+                    mapNode.style.alignItems = 'center';
+                    mapNode.style.justifyContent = 'center';
+                    mapNode.style.fontFamily = 'Arial, sans-serif';
+                    mapNode.style.fontSize = '13px';
+                    mapNode.textContent = 'Leaflet konnte nicht geladen werden (Offline/Netzwerk).';
+                }}
+                return;
+            }}
 
-    const group = L.featureGroup().addTo(map);
-    for (const feature of features) {{
-      const color = colors[feature.applicant] || '#ff0000';
-      const poly = L.polygon(feature.rings, {{
-        color: color,
-        weight: 2,
-        fillColor: color,
-        fillOpacity: 0.35
-      }});
-      poly.bindPopup(
-        '<b>' + escapeHtml(feature.label) + '</b><br>' +
-        escapeHtml(feature.applicant)
-      );
-      poly.addTo(group);
-    }}
+            const map = L.map('map', {{ zoomControl: true }});
+            L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}', {{
+                attribution: 'Tiles © Esri'
+            }}).addTo(map);
 
-    if (group.getLayers().length > 0) {{
-      map.fitBounds(group.getBounds().pad(0.08));
-    }} else {{
+            const group = L.featureGroup().addTo(map);
+            for (const feature of features) {{
+                const color = colors[feature.applicant] || '#ff0000';
+                const poly = L.polygon(feature.rings, {{
+                    color: color,
+                    weight: 2,
+                    fillColor: color,
+                    fillOpacity: 0.35
+                }});
+                poly.bindPopup(
+                    '<b>' + escapeHtml(feature.label) + '</b><br>' +
+                    escapeHtml(feature.applicant)
+                );
+                poly.addTo(group);
+            }}
+
+            if (group.getLayers().length > 0) {{
+                map.fitBounds(group.getBounds().pad(0.08));
+            }} else {{
             map.setView(defaultCenter, defaultZoom);
-    }}
+            }}
 
-    const legend = document.getElementById('legend');
-    legend.innerHTML = '<strong>' + escapeHtml(title) + '</strong><hr style="margin:6px 0;">';
-    for (const [applicant, color] of Object.entries(colors).sort((a, b) => a[0].localeCompare(b[0], 'de'))) {{
-      const row = document.createElement('div');
-      row.className = 'legend-item';
-      row.innerHTML = '<span class="swatch" style="background:' + color + '"></span>' + escapeHtml(applicant);
-      legend.appendChild(row);
-    }}
+            const legend = document.getElementById('legend');
+            legend.innerHTML = '<strong>' + escapeHtml(title) + '</strong><hr style="margin:6px 0;">';
+            for (const [applicant, color] of Object.entries(colors).sort((a, b) => a[0].localeCompare(b[0], 'de'))) {{
+                const row = document.createElement('div');
+                row.className = 'legend-item';
+                row.innerHTML = '<span class="swatch" style="background:' + color + '"></span>' + escapeHtml(applicant);
+                legend.appendChild(row);
+            }}
+
+            setTimeout(() => map.invalidateSize(true), 120);
+            setTimeout(() => map.invalidateSize(true), 320);
+            window.addEventListener('resize', () => map.invalidateSize(true));
+        }}
+
+        setTimeout(renderLeafletMap, 50);
   </script>
 </body>
 </html>
@@ -1436,30 +1497,43 @@ class MainWindow(QtWidgets.QMainWindow):
             default_zoom=self.default_map_zoom,
         )
         html_path = self._save_map_html(html)
-        self._open_map_preview(html_path, fallback_to_browser=False)
+        self._open_map_preview(html_path, fallback_to_browser=False, log_open=False)
 
     def _update_map_panel_visibility(self):
         if self.map_view is None:
             return
-        show_map_panel = self.isMaximized()
-        self.map_panel.setVisible(show_map_panel)
-        if show_map_panel:
-            self.main_splitter.setSizes([430, 430, 180])
-            html_path = self._map_output_dir() / "satellitenkarte.html"
-            if not html_path.exists():
-                self._write_default_map()
-                return
-            self._open_map_preview(
-                html_path,
-                fallback_to_browser=False,
-            )
+        self.map_panel.setVisible(True)
 
-    def _open_map_preview(self, html_path: Path, fallback_to_browser: bool = True):
+        is_large = self.isMaximized() or (self.width() >= 1450 and self.height() >= 880)
+        if is_large:
+            self.main_splitter.setSizes([500, 1000])
+            self.right_splitter.setSizes([700, 110])
+        else:
+            self.main_splitter.setSizes([540, 900])
+            self.right_splitter.setSizes([560, 120])
+
+        html_path = self._map_output_dir() / "satellitenkarte.html"
+        if not html_path.exists():
+            self._write_default_map()
+            return
+        self._open_map_preview(
+            html_path,
+            fallback_to_browser=False,
+            log_open=False,
+        )
+
+    def _open_map_preview(
+        self,
+        html_path: Path,
+        fallback_to_browser: bool = True,
+        log_open: bool = True,
+    ):
         if self.map_view is not None:
             self.map_view.setUrl(QtCore.QUrl.fromLocalFile(str(html_path.resolve())))
-            self.logln(
-                f"{self.strings.get('map_opened', 'Satellitenkarte geöffnet')}: GUI"
-            )
+            if log_open:
+                self.logln(
+                    f"{self.strings.get('map_opened', 'Satellitenkarte geöffnet')}: GUI"
+                )
             return
 
         if fallback_to_browser:
