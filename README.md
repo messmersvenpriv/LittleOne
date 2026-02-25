@@ -15,8 +15,9 @@ Polygone rein → Geometrie normalisiert und DJI-ready raus
 2. KMZ/KML-Datei auswählen
 3. Ausgabeordner festlegen
 4. Optional: **Karte aktualisieren** und Flächen prüfen
-5. Drohnenmodell, Flughöhe & weitere Parameter setzen
-6. **Konvertieren** → Fertig!
+5. Optional: **Tagesplan** drücken (optimierte Fahrreihenfolge + Routenanzeige)
+6. Drohnenmodell, Flughöhe & weitere Parameter setzen
+7. **Konvertieren** → Fertig!
 
 Die Dateien sind sofort in **DJI Pilot 2** importierbar.
 
@@ -28,6 +29,12 @@ Die Dateien sind sofort in **DJI Pilot 2** importierbar.
 - **Flächen im Popup ausschließen/wieder aufnehmen**
   - ausgeschlossene Flächen werden grau dargestellt
   - ausgeschlossene Flächen werden nicht konvertiert
+- **Neuer Button: Tagesplan**
+  - berechnet **Autofahrtrouten zwischen Flächen**
+  - optimiert die **Anfahr-Reihenfolge** auf geringe Gesamtstrecke
+  - nummeriert die Flächen in Besuchsreihenfolge auf der Karte
+  - zeigt Fahrzeiten direkt auf den Routenlinien
+  - öffnet ein extra Fenster mit dem detaillierten Tagesplan
 - **Update-Prüfung im Menü**: `Einstellungen → Nach Updates suchen`
 - **Windows-Icon integriert** (Titelleiste + EXE)
 
@@ -111,6 +118,23 @@ Die KML-Dateien können direkt in DJI Pilot 2 als **Missionsfläche** importiert
    ├─ Dateien: Weide2026_001.kml, Weide2026_002.kml, ...
    └─ In DJI Pilot 2 importieren
 ```
+
+### Tagesplan-Funktion (neu)
+
+Wenn eine KMZ/KML geladen ist, kannst du über **Tagesplan** vor der Konvertierung die Reihenfolge der Flächen planen:
+
+1. **Tagesplan** klicken
+2. LittleOne berechnet die Fahrmatrix zwischen Flächenzentren
+3. Reihenfolge wird auf minimale Fahrtzeit/-strecke optimiert
+4. Karte zeigt:
+  - nummerierte Flächen (1, 2, 3, ...)
+  - Fahrtrouten zwischen den Flächen
+  - Fahrzeitlabel direkt auf der Route
+5. Zusätzlich öffnet sich ein eigenes Fenster mit:
+  - genauer Reihenfolge aller Flächen
+  - Segmentliste mit Strecke und Fahrzeit pro Abschnitt
+
+Hinweis: Für echte Straßenrouten nutzt LittleOne OSRM (Online). Wenn kein Routing-Dienst erreichbar ist, wird automatisch ein Luftlinien-Fallback mit Durchschnittsgeschwindigkeit verwendet.
 
 ---
 
@@ -362,7 +386,7 @@ A: `Fehler-Log` unten im Fenster anschauen oder Datei an Support senden.
 A: Nur **WGS84 (EPSG:4326)** – das ist der Standard für KML/KMZ.
 
 **F: Brauche ich Internet zum Starten?**  
-A: Nein – alles läuft lokal. GitHub-Links im Help-Menü brauchen Internet.
+A: Für die reine Konvertierung nein. Für Satellitenkarten-Tiles und den Tagesplan mit realen Straßenrouten ist Internet sinnvoll. Ohne Routing-Dienst nutzt LittleOne automatisch einen Offline-Fallback (Luftlinie).
 
 ---
 
@@ -390,6 +414,7 @@ Bitte mitincludieren:
 
 | Version | Datum | Änderungen |
 |---------|-------|-----------|
+| 1.3 | Feb 2026 | Tagesplan-Button, Fahrreihenfolge-Optimierung, Fahrtrouten mit Zeitlabels, Tagesplan-Fenster |
 | 1.2 | Feb 2026 | Mehrsprachen-GUI, WPMZ-Support, Units-System |
 | 1.1 | Jan 2026 | Dark Mode, Fehler-Handling verbessert |
 | 1.0 | Dez 2025 | Initial Release |

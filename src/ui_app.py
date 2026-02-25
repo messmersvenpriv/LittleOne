@@ -16,10 +16,12 @@ import re
 import types
 import json
 import hashlib
+import math
 import subprocess
 import webbrowser
 import urllib.request
 import urllib.error
+import urllib.parse
 import tempfile
 
 ENGINE_IMPORT_ERROR = None
@@ -88,6 +90,7 @@ LANGUAGES = {
         "optimize_dir": "Winkeloptimierung aktiv",
         "optimize_elev": "Elevation-Optimierung aktiv",
         "convert": "Konvertieren",
+        "day_plan": "Tagesplan",
         "reset": "Zurücksetzen",
         "output": "Ausgabe",
         "ready": "Bereit.",
@@ -169,6 +172,7 @@ LANGUAGES = {
         "optimize_dir": "Angle Optimization",
         "optimize_elev": "Elevation Optimization",
         "convert": "Convert",
+        "day_plan": "Day Plan",
         "reset": "Reset",
         "output": "Output",
         "ready": "Ready.",
@@ -250,6 +254,7 @@ LANGUAGES = {
         "optimize_dir": "Optimisation d'angle",
         "optimize_elev": "Optimisation d'élévation",
         "convert": "Convertir",
+        "day_plan": "Plan du jour",
         "reset": "Réinitialiser",
         "output": "Sortie",
         "ready": "Prêt.",
@@ -331,6 +336,7 @@ LANGUAGES = {
         "optimize_dir": "Kulman optimointi",
         "optimize_elev": "Korkeuden optimointi",
         "convert": "Muunna",
+        "day_plan": "Päiväsuunnitelma",
         "reset": "Palauta",
         "output": "Tuloste",
         "ready": "Valmis.",
@@ -919,6 +925,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.map_btn.setFont(map_font)
         self.map_btn.clicked.connect(self.show_satellite_map)
 
+        self.day_plan_btn = QtWidgets.QPushButton(
+            self.strings.get("day_plan", "Tagesplan")
+        )
+        self.day_plan_btn.setMinimumHeight(40)
+        day_plan_font = self.day_plan_btn.font()
+        day_plan_font.setPointSize(10)
+        self.day_plan_btn.setFont(day_plan_font)
+        self.day_plan_btn.clicked.connect(self.generate_day_plan)
+
         self.reset_btn = QtWidgets.QPushButton(
             self.strings.get("reset", "Zurücksetzen")
         )
@@ -930,10 +945,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.convert_btn.setMinimumWidth(180)
         self.map_btn.setMinimumWidth(180)
+        self.day_plan_btn.setMinimumWidth(180)
         self.reset_btn.setMinimumWidth(160)
 
         button_layout.addWidget(self.convert_btn, stretch=2)
         button_layout.addWidget(self.map_btn, stretch=1)
+        button_layout.addWidget(self.day_plan_btn, stretch=1)
         button_layout.addWidget(self.reset_btn, stretch=1)
         button_layout.setContentsMargins(0, 5, 0, 5)
 
@@ -1432,6 +1449,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Update buttons
         self.convert_btn.setText(self.strings["convert"])
         self.map_btn.setText(self.strings.get("map_refresh", "Karte aktualisieren"))
+        self.day_plan_btn.setText(self.strings.get("day_plan", "Tagesplan"))
         self.reset_btn.setText(self.strings.get("reset", "Zurücksetzen"))
 
         if self.map_fallback_label is not None:
@@ -1762,6 +1780,10 @@ class MainWindow(QtWidgets.QMainWindow):
             elif isinstance(geom, MultiPolygon):
                 for idx, poly in enumerate(geom.geoms, start=1):
                     _append(poly, f"{base_label}-{idx}")
+
+        for entry in entries:
+            centroid = entry["geom"].centroid
+            entry["center"] = [float(centroid.y), float(centroid.x)]
         return entries
 
     def _collect_map_items(self, features, summaries):
@@ -1775,9 +1797,277 @@ class MainWindow(QtWidgets.QMainWindow):
                 "rings": entry["rings"],
                 "key": entry["key"],
                 "excluded": entry["key"] in self.excluded_area_keys,
+                "center": entry.get("center"),
             }
             for entry in entries
         ]
+
+    def _haversine_m(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+        radius_m = 6371008.8
+        phi1 = math.radians(float(lat1))
+        phi2 = math.radians(float(lat2))
+        d_phi = math.radians(float(lat2) - float(lat1))
+        d_lambda = math.radians(float(lon2) - float(lon1))
+        a = (
+            math.sin(d_phi / 2.0) ** 2
+            + math.cos(phi1) * math.cos(phi2) * math.sin(d_lambda / 2.0) ** 2
+        )
+        return (
+            2.0
+            * radius_m
+            * math.atan2(
+                math.sqrt(max(0.0, a)),
+                math.sqrt(max(1e-12, 1.0 - a)),
+            )
+        )
+
+    def _fetch_osrm_json(self, endpoint: str, query: dict | None = None):
+        query = query or {}
+        query_str = urllib.parse.urlencode(query)
+        url = f"https://router.project-osrm.org{endpoint}"
+        if query_str:
+            url += f"?{query_str}"
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "LittleOne-DayPlan/1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            payload = resp.read().decode("utf-8", errors="replace")
+        return json.loads(payload)
+
+    def _build_drive_matrix(self, points_lonlat):
+        n = len(points_lonlat)
+        if n <= 1:
+            return [[0.0]], [[0.0]], "single"
+
+        try:
+            coord_str = ";".join(f"{lon:.7f},{lat:.7f}" for lon, lat in points_lonlat)
+            data = self._fetch_osrm_json(
+                f"/table/v1/driving/{coord_str}",
+                {"annotations": "duration,distance"},
+            )
+            durations = data.get("durations")
+            distances = data.get("distances")
+            if not durations or len(durations) != n:
+                raise ValueError("Ungültige OSRM-Matrix")
+
+            clean_durations = [[0.0 for _ in range(n)] for _ in range(n)]
+            clean_distances = [[0.0 for _ in range(n)] for _ in range(n)]
+            avg_speed_mps = 60.0 / 3.6
+            for i in range(n):
+                for j in range(n):
+                    if i == j:
+                        continue
+                    fallback_d = self._haversine_m(
+                        points_lonlat[i][1],
+                        points_lonlat[i][0],
+                        points_lonlat[j][1],
+                        points_lonlat[j][0],
+                    )
+                    raw_d = None
+                    raw_t = None
+                    try:
+                        raw_d = distances[i][j] if distances and distances[i] else None
+                    except Exception:
+                        raw_d = None
+                    try:
+                        raw_t = durations[i][j] if durations and durations[i] else None
+                    except Exception:
+                        raw_t = None
+
+                    d_m = float(raw_d) if raw_d is not None else float(fallback_d)
+                    if not math.isfinite(d_m) or d_m <= 0:
+                        d_m = float(fallback_d)
+
+                    t_s = (
+                        float(raw_t)
+                        if raw_t is not None
+                        else (d_m / max(2.0, avg_speed_mps))
+                    )
+                    if not math.isfinite(t_s) or t_s <= 0:
+                        t_s = d_m / max(2.0, avg_speed_mps)
+
+                    clean_distances[i][j] = d_m
+                    clean_durations[i][j] = t_s
+
+            return clean_durations, clean_distances, "osrm"
+        except Exception as ex:
+            self.logln(f"ℹ Tagesplan-Fallback ohne OSRM-Matrix: {ex}")
+
+        durations = [[0.0 for _ in range(n)] for _ in range(n)]
+        distances = [[0.0 for _ in range(n)] for _ in range(n)]
+        avg_speed_mps = 60.0 / 3.6
+        for i in range(n):
+            lon1, lat1 = points_lonlat[i]
+            for j in range(n):
+                if i == j:
+                    continue
+                lon2, lat2 = points_lonlat[j]
+                d_m = self._haversine_m(lat1, lon1, lat2, lon2)
+                distances[i][j] = d_m
+                durations[i][j] = d_m / max(2.0, avg_speed_mps)
+        return durations, distances, "geo"
+
+    def _path_cost(self, order, matrix) -> float:
+        if len(order) <= 1:
+            return 0.0
+        return float(
+            sum(float(matrix[order[i]][order[i + 1]]) for i in range(len(order) - 1))
+        )
+
+    def _two_opt_open_path(self, order, matrix):
+        if len(order) < 4:
+            return list(order)
+        best = list(order)
+        improved = True
+        while improved:
+            improved = False
+            best_cost = self._path_cost(best, matrix)
+            for i in range(1, len(best) - 2):
+                for j in range(i + 1, len(best) - 1):
+                    candidate = (
+                        best[:i] + list(reversed(best[i : j + 1])) + best[j + 1 :]
+                    )
+                    cand_cost = self._path_cost(candidate, matrix)
+                    if cand_cost + 1e-6 < best_cost:
+                        best = candidate
+                        best_cost = cand_cost
+                        improved = True
+        return best
+
+    def _optimize_visit_order(self, matrix):
+        n = len(matrix)
+        if n <= 1:
+            return [0]
+
+        best_order = None
+        best_cost = float("inf")
+        for start in range(n):
+            unvisited = set(range(n))
+            order = [start]
+            unvisited.remove(start)
+            while unvisited:
+                prev = order[-1]
+                nxt = min(unvisited, key=lambda idx: float(matrix[prev][idx]))
+                order.append(nxt)
+                unvisited.remove(nxt)
+            order = self._two_opt_open_path(order, matrix)
+            cost = self._path_cost(order, matrix)
+            if cost < best_cost:
+                best_cost = cost
+                best_order = order
+
+        return best_order or list(range(n))
+
+    def _segment_route(self, start_lonlat, end_lonlat):
+        start_lon, start_lat = start_lonlat
+        end_lon, end_lat = end_lonlat
+        try:
+            coord_str = (
+                f"{start_lon:.7f},{start_lat:.7f};" f"{end_lon:.7f},{end_lat:.7f}"
+            )
+            data = self._fetch_osrm_json(
+                f"/route/v1/driving/{coord_str}",
+                {
+                    "overview": "full",
+                    "geometries": "geojson",
+                    "steps": "false",
+                },
+            )
+            routes = data.get("routes") or []
+            if routes:
+                route = routes[0]
+                geometry = route.get("geometry")
+                coords = (
+                    geometry.get("coordinates", [])
+                    if isinstance(geometry, dict)
+                    else []
+                )
+                line = []
+                for coord in coords:
+                    if isinstance(coord, (list, tuple)) and len(coord) >= 2:
+                        line.append([float(coord[1]), float(coord[0])])
+                if len(line) < 2:
+                    line = [
+                        [float(start_lat), float(start_lon)],
+                        [float(end_lat), float(end_lon)],
+                    ]
+                return {
+                    "line": line,
+                    "duration_s": float(route.get("duration", 0.0)),
+                    "distance_m": float(route.get("distance", 0.0)),
+                    "source": "osrm",
+                }
+        except Exception:
+            pass
+
+        d_m = self._haversine_m(
+            float(start_lat), float(start_lon), float(end_lat), float(end_lon)
+        )
+        dur_s = d_m / max(2.0, 60.0 / 3.6)
+        return {
+            "line": [
+                [float(start_lat), float(start_lon)],
+                [float(end_lat), float(end_lon)],
+            ],
+            "duration_s": float(dur_s),
+            "distance_m": float(d_m),
+            "source": "geo",
+        }
+
+    def _build_day_plan(self, entries):
+        active_entries = [
+            entry for entry in entries if entry["key"] not in self.excluded_area_keys
+        ]
+        if not active_entries:
+            return None
+
+        points_lonlat = [
+            (float(entry["center"][1]), float(entry["center"][0]))
+            for entry in active_entries
+        ]
+        durations, distances, matrix_source = self._build_drive_matrix(points_lonlat)
+        order = self._optimize_visit_order(durations)
+
+        ordered_entries = [active_entries[idx] for idx in order]
+        sequence_by_key = {
+            entry["key"]: idx + 1 for idx, entry in enumerate(ordered_entries)
+        }
+
+        segments = []
+        total_distance_m = 0.0
+        total_duration_s = 0.0
+        for idx in range(len(order) - 1):
+            src = ordered_entries[idx]
+            dst = ordered_entries[idx + 1]
+            src_pt = (float(src["center"][1]), float(src["center"][0]))
+            dst_pt = (float(dst["center"][1]), float(dst["center"][0]))
+            segment = self._segment_route(src_pt, dst_pt)
+            total_distance_m += float(segment["distance_m"])
+            total_duration_s += float(segment["duration_s"])
+            segments.append(
+                {
+                    "from_key": src["key"],
+                    "to_key": dst["key"],
+                    "from_label": src["label"],
+                    "to_label": dst["label"],
+                    "duration_s": float(segment["duration_s"]),
+                    "distance_m": float(segment["distance_m"]),
+                    "line": segment["line"],
+                    "source": segment["source"],
+                }
+            )
+
+        return {
+            "matrix_source": matrix_source,
+            "sequence_by_key": sequence_by_key,
+            "ordered_keys": [entry["key"] for entry in ordered_entries],
+            "ordered_labels": [entry["label"] for entry in ordered_entries],
+            "segments": segments,
+            "total_distance_m": total_distance_m,
+            "total_duration_s": total_duration_s,
+            "matrix_distance_hint_m": float(self._path_cost(order, distances)),
+        }
 
     def toggle_area_exclusion(self, area_key: str):
         if area_key in self.excluded_area_keys:
@@ -1815,6 +2105,7 @@ class MainWindow(QtWidgets.QMainWindow):
         color_map,
         mapping_line_items=None,
         flight_stats=None,
+        day_plan=None,
         default_center=None,
         default_zoom: int = 11,
     ):
@@ -1823,6 +2114,7 @@ class MainWindow(QtWidgets.QMainWindow):
         color_map_json = json.dumps(color_map, ensure_ascii=False)
         line_items_json = json.dumps(mapping_line_items or [], ensure_ascii=False)
         flight_stats_json = json.dumps(flight_stats or {}, ensure_ascii=False)
+        day_plan_json = json.dumps(day_plan or {}, ensure_ascii=False)
         title_json = json.dumps(title, ensure_ascii=False)
         remove_label = json.dumps(
             self.strings.get("map_remove_area", "Fläche entfernen"),
@@ -1950,6 +2242,7 @@ class MainWindow(QtWidgets.QMainWindow):
     const colors = {color_map_json};
         const lineItems = {line_items_json};
         const flightStatsSeed = {flight_stats_json};
+        const dayPlan = {day_plan_json};
         const defaultCenter = {center_json};
         const defaultZoom = {int(default_zoom)};
         const removeLabel = {remove_label};
@@ -1972,6 +2265,8 @@ class MainWindow(QtWidgets.QMainWindow):
         for (const item of lineItems) {{
             lineItemsByKey.set(item.key, item);
         }}
+        const daySequenceByKey = dayPlan.sequence_by_key || {{}};
+        const daySegments = Array.isArray(dayPlan.segments) ? dayPlan.segments : [];
 
         if (window.qt && typeof QWebChannel !== 'undefined') {{
             new QWebChannel(qt.webChannelTransport, function(channel) {{
@@ -2080,6 +2375,8 @@ class MainWindow(QtWidgets.QMainWindow):
             }}
 
             const lineLayerGroup = L.layerGroup();
+            const driveLayerGroup = L.layerGroup();
+            const driveTextLayerGroup = L.layerGroup();
 
             function renderLineOverlay() {{
                 lineLayerGroup.clearLayers();
@@ -2122,6 +2419,43 @@ class MainWindow(QtWidgets.QMainWindow):
                 `;
             }}
 
+            function formatMinutes(seconds) {{
+                const minutes = Math.max(0, Number(seconds || 0)) / 60.0;
+                return minutes.toFixed(1) + ' min';
+            }}
+
+            function midPoint(line) {{
+                if (!Array.isArray(line) || line.length === 0) return null;
+                return line[Math.floor(line.length / 2)] || null;
+            }}
+
+            function renderDayRoutes() {{
+                driveLayerGroup.clearLayers();
+                driveTextLayerGroup.clearLayers();
+                if (!Array.isArray(daySegments) || daySegments.length === 0) return;
+                for (const seg of daySegments) {{
+                    if (excluded.has(seg.from_key) || excluded.has(seg.to_key)) continue;
+                    const line = Array.isArray(seg.line) ? seg.line : [];
+                    if (line.length < 2) continue;
+                    L.polyline(line, {{
+                        color: '#1565c0',
+                        weight: 4,
+                        opacity: 0.8,
+                    }}).addTo(driveLayerGroup);
+
+                    const mid = midPoint(line);
+                    if (mid) {{
+                        L.marker(mid, {{
+                            interactive: false,
+                            icon: L.divIcon({{
+                                className: 'drive-time-label',
+                                html: '<div style="background:rgba(21,101,192,0.92);color:#fff;padding:2px 6px;border-radius:10px;font:600 11px Arial;white-space:nowrap;">' + escapeHtml(formatMinutes(seg.duration_s)) + '</div>',
+                            }}),
+                        }}).addTo(driveTextLayerGroup);
+                    }}
+                }}
+            }}
+
             window.toggleArea = function(encodedKey) {{
                 const key = decodeURIComponent(encodedKey);
                 const feature = featureByKey.get(key);
@@ -2137,6 +2471,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 setLayerStyle(layer, key, colors[feature.applicant] || '#ff0000');
                 layer.setPopupContent(popupHtml(feature));
                 renderLineOverlay();
+                renderDayRoutes();
                 formatStats();
                 if (bridge && typeof bridge.toggleArea === 'function') {{
                     bridge.toggleArea(key);
@@ -2148,6 +2483,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 attribution: 'Tiles © Esri'
             }}).addTo(map);
             lineLayerGroup.addTo(map);
+            driveLayerGroup.addTo(map);
+            driveTextLayerGroup.addTo(map);
 
             const group = L.featureGroup().addTo(map);
             for (const feature of features) {{
@@ -2162,6 +2499,18 @@ class MainWindow(QtWidgets.QMainWindow):
                 layersByKey.set(feature.key, poly);
                 setLayerStyle(poly, feature.key, color);
                 poly.bindPopup(popupHtml(feature));
+
+                const seq = daySequenceByKey[feature.key];
+                if (seq && Array.isArray(feature.center) && feature.center.length === 2) {{
+                    L.marker(feature.center, {{
+                        interactive: false,
+                        icon: L.divIcon({{
+                            className: 'day-seq-label',
+                            html: '<div style="background:#111;color:#fff;border:2px solid #fff;width:24px;height:24px;line-height:20px;border-radius:12px;text-align:center;font:700 12px Arial;">' + String(seq) + '</div>'
+                        }})
+                    }}).addTo(group);
+                }}
+
                 poly.on('popupopen', function(e) {{
                     const root = e.popup && e.popup.getElement ? e.popup.getElement() : null;
                     if (!root) {{
@@ -2201,6 +2550,7 @@ class MainWindow(QtWidgets.QMainWindow):
             }}
 
             renderLineOverlay();
+            renderDayRoutes();
             formatStats();
 
             setTimeout(() => map.invalidateSize(true), 120);
@@ -2235,6 +2585,7 @@ class MainWindow(QtWidgets.QMainWindow):
             payload.get("color_map", {}),
             mapping_line_items=payload.get("mapping_line_items", []),
             flight_stats=payload.get("flight_stats", {}),
+            day_plan=payload.get("day_plan", {}),
             default_center=payload.get("default_center", self.default_map_center),
             default_zoom=int(payload.get("default_zoom", self.default_map_zoom)),
         )
@@ -2255,6 +2606,7 @@ class MainWindow(QtWidgets.QMainWindow):
             "color_map": {},
             "mapping_line_items": [],
             "flight_stats": {},
+            "day_plan": {},
             "default_center": self.default_map_center,
             "default_zoom": self.default_map_zoom,
         }
@@ -2267,6 +2619,7 @@ class MainWindow(QtWidgets.QMainWindow):
             "color_map": {},
             "mapping_line_items": [],
             "flight_stats": {},
+            "day_plan": {},
             "default_center": self.default_map_center,
             "default_zoom": self.default_map_zoom,
         }
@@ -2359,6 +2712,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.progress.setMaximum(0)
             self.progress.setValue(0)
             self.map_btn.setEnabled(False)
+            self.day_plan_btn.setEnabled(False)
             self.status.showMessage(self.strings.get("map_loading", "Lade Karte..."))
             self.logln(self.strings.get("map_loading", "Lade Karte..."))
             QtCore.QCoreApplication.processEvents()
@@ -2376,6 +2730,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     "rings": entry["rings"],
                     "key": entry["key"],
                     "excluded": entry["key"] in self.excluded_area_keys,
+                    "center": entry.get("center"),
                 }
                 for entry in entries
             ]
@@ -2468,6 +2823,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 "color_map": color_map,
                 "mapping_line_items": mapping_line_items,
                 "flight_stats": flight_stats,
+                "day_plan": {},
                 "default_center": self.default_map_center,
                 "default_zoom": self.default_map_zoom,
             }
@@ -2494,6 +2850,179 @@ class MainWindow(QtWidgets.QMainWindow):
             self.progress.setMaximum(100)
             self.progress.setValue(0)
             self.map_btn.setEnabled(True)
+            self.day_plan_btn.setEnabled(True)
+
+    def _show_day_plan_window(self, entries, day_plan):
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle(self.strings.get("day_plan", "Tagesplan"))
+        dialog.resize(700, 540)
+
+        layout = QtWidgets.QVBoxLayout(dialog)
+        header = QtWidgets.QLabel(
+            f"<b>{self.strings.get('day_plan', 'Tagesplan')}</b><br>"
+            f"Flächen: {len(day_plan.get('ordered_keys', []))}"
+            f" · Strecke: {day_plan.get('total_distance_m', 0.0) / 1000.0:.2f} km"
+            f" · Fahrzeit: {day_plan.get('total_duration_s', 0.0) / 60.0:.1f} min"
+        )
+        header.setWordWrap(True)
+        layout.addWidget(header)
+
+        detail_box = QtWidgets.QPlainTextEdit()
+        detail_box.setReadOnly(True)
+
+        by_key = {entry["key"]: entry for entry in entries}
+        lines = []
+        for idx, key in enumerate(day_plan.get("ordered_keys", []), start=1):
+            entry = by_key.get(key)
+            if entry is None:
+                continue
+            lines.append(f"{idx}. {entry['label']} ({entry['applicant']})")
+
+        lines.append("")
+        lines.append("Fahrtsegmente:")
+        for idx, seg in enumerate(day_plan.get("segments", []), start=1):
+            lines.append(
+                f"{idx}. {seg.get('from_label')} -> {seg.get('to_label')}"
+                f" | {float(seg.get('distance_m', 0.0)) / 1000.0:.2f} km"
+                f" | {float(seg.get('duration_s', 0.0)) / 60.0:.1f} min"
+            )
+
+        source = str(day_plan.get("matrix_source", "geo")).upper()
+        lines.append("")
+        lines.append(f"Routing-Quelle: {source}")
+        if source != "OSRM":
+            lines.append(
+                "Hinweis: Fallback mit Luftlinie + Durchschnittsgeschwindigkeit aktiv."
+            )
+
+        detail_box.setPlainText("\n".join(lines))
+        layout.addWidget(detail_box, 1)
+
+        close_btn = QtWidgets.QPushButton(self.strings.get("ok", "OK"))
+        close_btn.clicked.connect(dialog.accept)
+        row = QtWidgets.QHBoxLayout()
+        row.addStretch(1)
+        row.addWidget(close_btn)
+        layout.addLayout(row)
+
+        dialog.exec()
+
+    def generate_day_plan(self):
+        kmz_path = self._validate_input_path()
+        if kmz_path is None:
+            return
+
+        ok, import_err = _ensure_engine_modules()
+        if not ok:
+            err_text = (
+                f"{type(import_err).__name__}: {import_err}"
+                if import_err
+                else "Unbekannter Importfehler"
+            )
+            self.logln(f"Engine-Importfehler: {err_text}")
+            QtWidgets.QMessageBox.critical(
+                self,
+                self.strings["import_error"],
+                "LittleOne-Engine konnte nicht geladen werden.\n\n"
+                f"Details: {err_text}\n\n"
+                "Bitte venv/Startpfad prüfen.",
+            )
+            return
+
+        kmz = kmz_reader
+        if kmz is None:
+            QtWidgets.QMessageBox.critical(
+                self,
+                self.strings["import_error"],
+                "LittleOne-Engine ist nicht verfügbar.",
+            )
+            return
+
+        try:
+            self.progress.setVisible(True)
+            self.progress.setMaximum(0)
+            self.progress.setValue(0)
+            self.day_plan_btn.setEnabled(False)
+            self.map_btn.setEnabled(False)
+            self.convert_btn.setEnabled(False)
+            self.status.showMessage("Berechne Tagesplan ...")
+            self.logln("Berechne Tagesplan ...")
+            QtCore.QCoreApplication.processEvents()
+
+            features = kmz.parse_kmz_to_area_features(str(kmz_path))
+            summaries = kmz.summarize_features(features)
+            entries = self._collect_geometry_entries(features, summaries)
+            current_keys = {entry["key"] for entry in entries}
+            self.excluded_area_keys.intersection_update(current_keys)
+
+            day_plan = self._build_day_plan(entries)
+            if not day_plan or not day_plan.get("ordered_keys"):
+                QtWidgets.QMessageBox.information(
+                    self,
+                    self.strings.get("day_plan", "Tagesplan"),
+                    "Keine aktiven Flächen für Tagesplan vorhanden.",
+                )
+                return
+
+            sequence_by_key = day_plan.get("sequence_by_key", {})
+            applicants = sorted({entry["applicant"] for entry in entries})
+            color_map = {
+                applicant: self._color_for_applicant(applicant)
+                for applicant in applicants
+            }
+            map_items = [
+                {
+                    "applicant": entry["applicant"],
+                    "label": (
+                        f"{sequence_by_key[entry['key']]}. {entry['label']}"
+                        if entry["key"] in sequence_by_key
+                        else entry["label"]
+                    ),
+                    "rings": entry["rings"],
+                    "key": entry["key"],
+                    "excluded": entry["key"] in self.excluded_area_keys,
+                    "center": entry.get("center"),
+                }
+                for entry in entries
+            ]
+
+            self.last_map_payload = {
+                "map_items": map_items,
+                "color_map": color_map,
+                "mapping_line_items": [],
+                "flight_stats": {"optimization_active": False},
+                "day_plan": day_plan,
+                "default_center": self.default_map_center,
+                "default_zoom": self.default_map_zoom,
+            }
+            self._render_map_from_payload(
+                self.last_map_payload,
+                force_reload=True,
+                log_open=True,
+            )
+
+            self.logln(
+                "✓ Tagesplan: "
+                f"{len(day_plan.get('ordered_keys', []))} Flächen, "
+                f"{day_plan.get('total_distance_m', 0.0) / 1000.0:.2f} km, "
+                f"{day_plan.get('total_duration_s', 0.0) / 60.0:.1f} min"
+            )
+            self.status.showMessage("Tagesplan erstellt")
+            self._show_day_plan_window(entries, day_plan)
+        except Exception as ex:
+            tb = traceback.format_exc()
+            self.logln("─" * 60)
+            self.logln("❌ Tagesplan-Fehler:")
+            self.logln(tb)
+            self.status.showMessage(self.strings["error"])
+            QtWidgets.QMessageBox.critical(self, self.strings["error"], str(ex))
+        finally:
+            self.progress.setVisible(False)
+            self.progress.setMaximum(100)
+            self.progress.setValue(0)
+            self.day_plan_btn.setEnabled(True)
+            self.map_btn.setEnabled(True)
+            self.convert_btn.setEnabled(True)
 
     def convert(self):
         try:
@@ -2553,6 +3082,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.progress.setMaximum(0)  # Indeterminate mode
             self.convert_btn.setEnabled(False)
             self.map_btn.setEnabled(False)
+            self.day_plan_btn.setEnabled(False)
 
             self.status.showMessage(self.strings["converting"])
             self.logln(f"Starte Konvertierung: {kmz_path}")
@@ -2673,6 +3203,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.status.showMessage("Keine Polygone.")
                 self.progress.setVisible(False)
                 self.convert_btn.setEnabled(True)
+                self.day_plan_btn.setEnabled(True)
                 return
 
             self.logln(f"✓ {len(polys)} Polygone extrahiert")
@@ -2732,6 +3263,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.progress.setVisible(False)
             self.convert_btn.setEnabled(True)
             self.map_btn.setEnabled(True)
+            self.day_plan_btn.setEnabled(True)
 
     def _detect_system_theme(self) -> str:
         """Detect system theme (Light or Dark)"""
