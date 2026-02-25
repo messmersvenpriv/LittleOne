@@ -1564,12 +1564,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self,
         map_items,
         color_map,
+        mapping_line_items=None,
+        flight_stats=None,
         default_center=None,
         default_zoom: int = 11,
     ):
         title = self.strings.get("map_title", "Satellitenkarte")
         map_items_json = json.dumps(map_items, ensure_ascii=False)
         color_map_json = json.dumps(color_map, ensure_ascii=False)
+        line_items_json = json.dumps(mapping_line_items or [], ensure_ascii=False)
+        flight_stats_json = json.dumps(flight_stats or {}, ensure_ascii=False)
         title_json = json.dumps(title, ensure_ascii=False)
         remove_label = json.dumps("Fläche entfernen", ensure_ascii=False)
         add_label = json.dumps("Fläche wieder aufnehmen", ensure_ascii=False)
@@ -1599,12 +1603,38 @@ class MainWindow(QtWidgets.QMainWindow):
       line-height: 1.4;
       box-shadow: 0 1px 8px rgba(0,0,0,0.2);
     }}
+        #controls {{
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            z-index: 1000;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 10px 12px;
+            border-radius: 6px;
+            min-width: 230px;
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            line-height: 1.4;
+            box-shadow: 0 1px 8px rgba(0,0,0,0.2);
+        }}
+        #controls .row {{ margin-bottom: 6px; }}
+        #controls .stats {{ color: #222; }}
+        #controls .muted {{ color: #666; }}
     .legend-item {{ display: flex; align-items: center; margin-bottom: 4px; }}
     .swatch {{ width: 14px; height: 14px; border-radius: 2px; margin-right: 6px; border: 1px solid #444; }}
   </style>
 </head>
 <body>
   <div id=\"map\"></div>
+    <div id="controls">
+        <div class="row"><strong>Kartierungslinien</strong></div>
+        <div class="row">
+            <label>
+                <input id="toggle-lines" type="checkbox" /> Linien anzeigen
+            </label>
+        </div>
+        <div id="flight-stats" class="stats"></div>
+    </div>
   <div id=\"legend\"></div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -1620,6 +1650,8 @@ class MainWindow(QtWidgets.QMainWindow):
     const title = {title_json};
     const features = {map_items_json};
     const colors = {color_map_json};
+        const lineItems = {line_items_json};
+        const flightStatsSeed = {flight_stats_json};
         const defaultCenter = {center_json};
         const defaultZoom = {int(default_zoom)};
         const removeLabel = {remove_label};
@@ -1628,6 +1660,10 @@ class MainWindow(QtWidgets.QMainWindow):
         let bridge = null;
         const layersByKey = new Map();
         const featureByKey = new Map();
+        const lineItemsByKey = new Map();
+        for (const item of lineItems) {{
+            lineItemsByKey.set(item.key, item);
+        }}
 
         if (window.qt && typeof QWebChannel !== 'undefined') {{
             new QWebChannel(qt.webChannelTransport, function(channel) {{
@@ -1658,6 +1694,57 @@ class MainWindow(QtWidgets.QMainWindow):
                 return;
             }}
 
+            const toggleLines = document.getElementById('toggle-lines');
+            const statsNode = document.getElementById('flight-stats');
+            const optimizationActive = !!flightStatsSeed.optimization_active;
+            const hasLines = lineItems.length > 0;
+            const defaultShowLines = optimizationActive && hasLines;
+            let showLines = defaultShowLines;
+
+            if (toggleLines) {{
+                toggleLines.checked = defaultShowLines;
+                toggleLines.disabled = !hasLines;
+            }}
+
+            function formatStats() {{
+                if (!optimizationActive) {{
+                    if (statsNode) statsNode.innerHTML = '<span class="muted">Winkeloptimierung ist deaktiviert.</span>';
+                    return;
+                }}
+
+                let totalDistance = 0;
+                let totalTime = 0;
+                let totalLines = 0;
+                let areas = 0;
+                for (const item of lineItems) {{
+                    if (excluded.has(item.key)) continue;
+                    totalDistance += Number(item.distance_m || 0);
+                    totalTime += Number(item.time_s || 0);
+                    totalLines += Number(item.line_count || 0);
+                    areas += 1;
+                }}
+
+                const minutes = totalTime / 60.0;
+                const speed = Number(flightStatsSeed.speed_mps || 0);
+                const overlap = Number(flightStatsSeed.overlap_percent || 0);
+                const altitude = Number(flightStatsSeed.altitude_m || 0);
+                const drone = String(flightStatsSeed.drone || '');
+
+                if (statsNode) {{
+                    statsNode.innerHTML =
+                        '<div>Flächen aktiv: <b>' + areas + '</b></div>' +
+                        '<div>Geschätzte Strecke: <b>' + totalDistance.toFixed(1) + ' m</b></div>' +
+                        '<div>Geschätzte Flugzeit: <b>' + minutes.toFixed(1) + ' min</b></div>' +
+                        '<div>Linien: <b>' + Math.round(totalLines) + '</b></div>' +
+                        '<div class="muted">' +
+                            'Drohne ' + escapeHtml(drone) +
+                            ' · Höhe ' + altitude.toFixed(1) + ' m' +
+                            ' · Überlapp ' + overlap.toFixed(0) + '%' +
+                            ' · Speed ' + speed.toFixed(1) + ' m/s' +
+                        '</div>';
+                }}
+            }}
+
             function setLayerStyle(layer, key, baseColor) {{
                 if (excluded.has(key)) {{
                     layer.setStyle({{
@@ -1675,6 +1762,37 @@ class MainWindow(QtWidgets.QMainWindow):
                         weight: 2,
                         dashArray: null
                     }});
+                }}
+            }}
+
+            function lineColorForKey(key) {{
+                const feature = featureByKey.get(key);
+                if (!feature) return '#ffffff';
+                return colors[feature.applicant] || '#ffffff';
+            }}
+
+            const lineLayerGroup = L.layerGroup();
+
+            function renderLineOverlay() {{
+                lineLayerGroup.clearLayers();
+                if (!showLines) {{
+                    return;
+                }}
+                for (const item of lineItems) {{
+                    if (excluded.has(item.key)) {{
+                        continue;
+                    }}
+                    const col = lineColorForKey(item.key);
+                    const lines = Array.isArray(item.lines) ? item.lines : [];
+                    for (const line of lines) {{
+                        if (!Array.isArray(line) || line.length < 2) continue;
+                        L.polyline(line, {{
+                            color: col,
+                            weight: 2,
+                            opacity: 0.9,
+                            dashArray: '8,6'
+                        }}).addTo(lineLayerGroup);
+                    }}
                 }}
             }}
 
@@ -1710,6 +1828,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 }}
                 setLayerStyle(layer, key, colors[feature.applicant] || '#ff0000');
                 layer.setPopupContent(popupHtml(feature));
+                renderLineOverlay();
+                formatStats();
                 if (bridge && typeof bridge.toggleArea === 'function') {{
                     bridge.toggleArea(key);
                 }}
@@ -1719,6 +1839,7 @@ class MainWindow(QtWidgets.QMainWindow):
             L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}', {{
                 attribution: 'Tiles © Esri'
             }}).addTo(map);
+            lineLayerGroup.addTo(map);
 
             const group = L.featureGroup().addTo(map);
             for (const feature of features) {{
@@ -1763,6 +1884,16 @@ class MainWindow(QtWidgets.QMainWindow):
                 row.innerHTML = '<span class="swatch" style="background:' + color + '"></span>' + escapeHtml(applicant);
                 legend.appendChild(row);
             }}
+
+            if (toggleLines) {{
+                toggleLines.onchange = function() {{
+                    showLines = !!toggleLines.checked;
+                    renderLineOverlay();
+                }};
+            }}
+
+            renderLineOverlay();
+            formatStats();
 
             setTimeout(() => map.invalidateSize(true), 120);
             setTimeout(() => map.invalidateSize(true), 320);
@@ -1882,7 +2013,20 @@ class MainWindow(QtWidgets.QMainWindow):
 
             features = kmz.parse_kmz_to_area_features(str(kmz_path))
             summaries = kmz.summarize_features(features)
-            map_items = self._collect_map_items(features, summaries)
+            entries = self._collect_geometry_entries(features, summaries)
+            current_keys = {entry["key"] for entry in entries}
+            self.excluded_area_keys.intersection_update(current_keys)
+
+            map_items = [
+                {
+                    "applicant": entry["applicant"],
+                    "label": entry["label"],
+                    "rings": entry["rings"],
+                    "key": entry["key"],
+                    "excluded": entry["key"] in self.excluded_area_keys,
+                }
+                for entry in entries
+            ]
 
             if not map_items:
                 self.logln(
@@ -1904,9 +2048,74 @@ class MainWindow(QtWidgets.QMainWindow):
                 for applicant in applicants
             }
 
+            mapping_line_items = []
+            flight_stats = {
+                "optimization_active": False,
+                "drone": self.drone_combo.currentText(),
+                "altitude_m": 0.0,
+                "overlap_percent": float(self.overlap_spin.value()),
+                "speed_mps": 0.0,
+            }
+
+            metric_values = self._get_metric_values()
+            flight_stats["altitude_m"] = float(metric_values["altitude"])
+            flight_stats["speed_mps"] = float(metric_values["speed"])
+
+            def _num(value, default=0.0):
+                try:
+                    return float(value)
+                except Exception:
+                    return float(default)
+
+            optimizer = optimize_angle_mod
+            optimize_active = self.optimize_direction_check.isChecked()
+            if (
+                optimize_active
+                and optimizer is not None
+                and hasattr(optimizer, "mapping_preview")
+            ):
+                flight_stats["optimization_active"] = True
+                for entry in entries:
+                    if entry["key"] in self.excluded_area_keys:
+                        continue
+                    preview = optimizer.mapping_preview(
+                        entry["geom"],
+                        altitude_m=float(metric_values["altitude"]),
+                        side_overlap_percent=float(self.overlap_spin.value()),
+                        speed_mps=float(metric_values["speed"]),
+                        drone=self.drone_combo.currentText(),
+                    )
+                    mapping_line_items.append(
+                        {
+                            "key": entry["key"],
+                            "direction_deg": _num(preview.get("direction_deg", 0.0)),
+                            "distance_m": _num(preview.get("distance_m", 0.0)),
+                            "time_s": _num(preview.get("time_s", 0.0)),
+                            "line_count": _num(preview.get("line_count", 0.0)),
+                            "lines": preview.get("lines_latlon", []),
+                        }
+                    )
+
+                total_distance_m = sum(
+                    float(item["distance_m"]) for item in mapping_line_items
+                )
+                total_time_min = (
+                    sum(float(item["time_s"]) for item in mapping_line_items) / 60.0
+                )
+                self.logln(
+                    "ℹ Kartenvorschau (optimiert): "
+                    f"{total_distance_m:.1f} m, {total_time_min:.1f} min"
+                )
+            elif optimize_active and optimizer is not None:
+                self.logln(
+                    "ℹ Optimierung aktiv, aber Linien-Preview wird von diesem Optimizer noch nicht unterstützt."
+                )
+
             html = self._build_satellite_map_html(
                 map_items,
                 color_map,
+                mapping_line_items=mapping_line_items,
+                flight_stats=flight_stats,
                 default_center=self.default_map_center,
                 default_zoom=self.default_map_zoom,
             )
@@ -2012,6 +2221,8 @@ class MainWindow(QtWidgets.QMainWindow):
             polys = []
             names = []
             directions = []
+            est_total_distance_m = 0.0
+            est_total_time_s = 0.0
 
             def _clean(v: str) -> str:
                 txt = (v or "").strip()
@@ -2072,9 +2283,24 @@ class MainWindow(QtWidgets.QMainWindow):
                 polys.append(geom)
                 names.append(base_file_name)
                 if self.optimize_direction_check.isChecked() and optimizer is not None:
-                    directions.append(
-                        int(round(float(optimizer.mrr_angle_deg(geom)))) % 180
-                    )
+                    if hasattr(optimizer, "best_mapping_direction_deg"):
+                        result = optimizer.best_mapping_direction_deg(
+                            geom,
+                            altitude_m=float(metric_values["altitude"]),
+                            side_overlap_percent=float(self.overlap_spin.value()),
+                            speed_mps=float(metric_values["speed"]),
+                            drone=self.drone_combo.currentText(),
+                        )
+                        direction_deg = (
+                            int(round(float(result.get("direction_deg", 0.0)))) % 180
+                        )
+                        directions.append(direction_deg)
+                        est_total_distance_m += float(result.get("distance_m", 0.0))
+                        est_total_time_s += float(result.get("time_s", 0.0))
+                    else:
+                        directions.append(
+                            int(round(float(optimizer.mrr_angle_deg(geom)))) % 180
+                        )
                 else:
                     directions.append(0)
 
@@ -2091,6 +2317,12 @@ class MainWindow(QtWidgets.QMainWindow):
                 return
 
             self.logln(f"✓ {len(polys)} Polygone extrahiert")
+            if self.optimize_direction_check.isChecked() and est_total_distance_m > 0:
+                est_total_time_min = est_total_time_s / 60.0
+                self.logln(
+                    "ℹ Schätzung optimierter Flugweg: "
+                    f"{est_total_distance_m:.1f} m, {est_total_time_min:.1f} min"
+                )
             QtCore.QCoreApplication.processEvents()
 
             # Normalize
