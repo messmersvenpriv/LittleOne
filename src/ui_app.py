@@ -117,6 +117,26 @@ LANGUAGES = {
         "map_no_polygons": "Keine Polygone für Kartenansicht gefunden.",
         "map_saved": "Karte gespeichert",
         "map_panel_fallback": "Kartenpanel benötigt QtWebEngine. Browser-Fallback ist aktiv.",
+        "map_remove_area": "Fläche entfernen",
+        "map_readd_area": "Fläche wieder aufnehmen",
+        "map_controls_title": "Kartierungslinien",
+        "map_controls_toggle": "Linien anzeigen",
+        "map_opt_disabled": "Winkeloptimierung ist deaktiviert.",
+        "map_stats_active_areas": "Flächen aktiv",
+        "map_stats_distance": "Geschätzte Strecke",
+        "map_stats_time": "Geschätzte Flugzeit",
+        "map_stats_lines": "Linien",
+        "map_stats_drone": "Drohne",
+        "map_stats_altitude": "Höhe",
+        "map_stats_overlap": "Überlapp",
+        "map_stats_speed": "Speed",
+        "map_leaflet_error": "Leaflet konnte nicht geladen werden (Offline/Netzwerk).",
+        "link_survey_tip": "Survey123 öffnen",
+        "link_arcgis_tip": "ArcGIS Map öffnen",
+        "link_home_tip": "Homepage öffnen",
+        "toilet_tip": "Klopapierrolle",
+        "toilet_title": "🧻",
+        "toilet_message": "Was hast du denn jetzt erwartet, dass passiert?\nWeiter machen!",
         "settings_title": "Einstellungen",
         "theme": "Design",
         "language": "Sprache",
@@ -178,6 +198,26 @@ LANGUAGES = {
         "map_no_polygons": "No polygons found for map preview.",
         "map_saved": "Map saved",
         "map_panel_fallback": "Map panel needs QtWebEngine. Browser fallback is active.",
+        "map_remove_area": "Remove area",
+        "map_readd_area": "Include area again",
+        "map_controls_title": "Mapping lines",
+        "map_controls_toggle": "Show lines",
+        "map_opt_disabled": "Angle optimization is disabled.",
+        "map_stats_active_areas": "Active areas",
+        "map_stats_distance": "Estimated distance",
+        "map_stats_time": "Estimated flight time",
+        "map_stats_lines": "Lines",
+        "map_stats_drone": "Drone",
+        "map_stats_altitude": "Altitude",
+        "map_stats_overlap": "Overlap",
+        "map_stats_speed": "Speed",
+        "map_leaflet_error": "Leaflet could not be loaded (offline/network).",
+        "link_survey_tip": "Open Survey123",
+        "link_arcgis_tip": "Open ArcGIS Map",
+        "link_home_tip": "Open Homepage",
+        "toilet_tip": "Toilet roll",
+        "toilet_title": "🧻",
+        "toilet_message": "What did you expect to happen now?\nKeep going!",
         "settings_title": "Settings",
         "theme": "Theme",
         "language": "Language",
@@ -239,6 +279,26 @@ LANGUAGES = {
         "map_no_polygons": "Aucun polygone trouvé pour la carte.",
         "map_saved": "Carte enregistrée",
         "map_panel_fallback": "Le panneau carte nécessite QtWebEngine. Repli navigateur actif.",
+        "map_remove_area": "Retirer la zone",
+        "map_readd_area": "Réintégrer la zone",
+        "map_controls_title": "Lignes de cartographie",
+        "map_controls_toggle": "Afficher les lignes",
+        "map_opt_disabled": "L'optimisation d'angle est désactivée.",
+        "map_stats_active_areas": "Zones actives",
+        "map_stats_distance": "Distance estimée",
+        "map_stats_time": "Temps de vol estimé",
+        "map_stats_lines": "Lignes",
+        "map_stats_drone": "Drone",
+        "map_stats_altitude": "Altitude",
+        "map_stats_overlap": "Chevauchement",
+        "map_stats_speed": "Vitesse",
+        "map_leaflet_error": "Leaflet n'a pas pu être chargé (hors ligne/réseau).",
+        "link_survey_tip": "Ouvrir Survey123",
+        "link_arcgis_tip": "Ouvrir la carte ArcGIS",
+        "link_home_tip": "Ouvrir la page d'accueil",
+        "toilet_tip": "Rouleau de papier toilette",
+        "toilet_title": "🧻",
+        "toilet_message": "Tu t'attendais à quoi, exactement ?\nOn continue !",
         "settings_title": "Paramètres",
         "theme": "Thème",
         "language": "Langue",
@@ -300,6 +360,26 @@ LANGUAGES = {
         "map_no_polygons": "Karttaa varten ei löytynyt polygoneja.",
         "map_saved": "Kartta tallennettu",
         "map_panel_fallback": "Karttapaneeli tarvitsee QtWebEngine-moduulin. Selainvaratila on käytössä.",
+        "map_remove_area": "Poista alue",
+        "map_readd_area": "Lisää alue takaisin",
+        "map_controls_title": "Kartoituslinjat",
+        "map_controls_toggle": "Näytä linjat",
+        "map_opt_disabled": "Kulmaoptimointi ei ole käytössä.",
+        "map_stats_active_areas": "Aktiiviset alueet",
+        "map_stats_distance": "Arvioitu etäisyys",
+        "map_stats_time": "Arvioitu lentoaika",
+        "map_stats_lines": "Linjat",
+        "map_stats_drone": "Drooni",
+        "map_stats_altitude": "Korkeus",
+        "map_stats_overlap": "Päällekkäisyys",
+        "map_stats_speed": "Nopeus",
+        "map_leaflet_error": "Leafletin lataus epäonnistui (offline/verkko).",
+        "link_survey_tip": "Avaa Survey123",
+        "link_arcgis_tip": "Avaa ArcGIS-kartta",
+        "link_home_tip": "Avaa kotisivu",
+        "toilet_tip": "Vessapaperirulla",
+        "toilet_title": "🧻",
+        "toilet_message": "Mitä oikein odotit tapahtuvan?\nJatketaan!",
         "settings_title": "Asetukset",
         "theme": "Teema",
         "language": "Kieli",
@@ -477,12 +557,119 @@ class MainWindow(QtWidgets.QMainWindow):
         base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
         return base / relative_path
 
+    def _badge_icon(
+        self,
+        text: str,
+        bg_color: str,
+        fg_color: str = "#FFFFFF",
+        size: int = 40,
+    ) -> QtGui.QIcon:
+        pixmap = QtGui.QPixmap(size, size)
+        pixmap.fill(QtCore.Qt.GlobalColor.transparent)
+
+        painter = QtGui.QPainter(pixmap)
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(QtCore.Qt.PenStyle.NoPen)
+        painter.setBrush(QtGui.QColor(bg_color))
+        painter.drawEllipse(1, 1, size - 2, size - 2)
+
+        font = QtGui.QFont("Segoe UI", 9)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QtGui.QPen(QtGui.QColor(fg_color)))
+        painter.drawText(
+            QtCore.QRectF(0, 0, size, size),
+            int(QtCore.Qt.AlignmentFlag.AlignCenter),
+            text,
+        )
+        painter.end()
+        return QtGui.QIcon(pixmap)
+
+    def _icon_from_url(
+        self, url: str, fallback: QtGui.QIcon | None = None
+    ) -> QtGui.QIcon:
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "LittleOne/1.0"},
+            )
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = resp.read()
+            pix = QtGui.QPixmap()
+            if pix.loadFromData(data):
+                return QtGui.QIcon(pix)
+        except Exception:
+            pass
+        return fallback or QtGui.QIcon()
+
+    def _circular_icon_from_pixmap(
+        self, source: QtGui.QPixmap, size: int = 40
+    ) -> QtGui.QIcon:
+        if source.isNull():
+            return QtGui.QIcon()
+
+        side = min(source.width(), source.height())
+        x = (source.width() - side) // 2
+        y = (source.height() - side) // 2
+        square = source.copy(x, y, side, side)
+
+        out = QtGui.QPixmap(size, size)
+        out.fill(QtCore.Qt.GlobalColor.transparent)
+
+        painter = QtGui.QPainter(out)
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
+
+        path = QtGui.QPainterPath()
+        path.addEllipse(1, 1, size - 2, size - 2)
+        painter.setClipPath(path)
+        painter.drawPixmap(
+            QtCore.QRect(0, 0, size, size),
+            square,
+            square.rect(),
+        )
+        painter.end()
+        return QtGui.QIcon(out)
+
+    def _homepage_logo_icon(self, size: int = 40) -> QtGui.QIcon:
+        local_logo_path = self._resource_path("data/Icon/homepage_round.PNG")
+        if local_logo_path.exists():
+            return QtGui.QIcon(str(local_logo_path))
+
+        web_logo = self._icon_from_url(
+            "https://www.arcgis.com/sharing/rest/content/items/b02e0603b52349d1bde490783c4c98e4/resources/logo_badische%20J%C3%A4ger.png"
+        )
+        if not web_logo.isNull():
+            return web_logo
+        return self._badge_icon("KR", "#2E7D32", size=size)
+
+    def _show_toilet_message(self):
+        QtWidgets.QMessageBox.information(
+            self,
+            self.strings.get("toilet_title", "🧻"),
+            self.strings.get(
+                "toilet_message",
+                "Was hast du denn jetzt erwartet, dass passiert?\nWeiter machen!",
+            ),
+        )
+
+    def _make_link_button(self, icon: QtGui.QIcon, tooltip: str, url: str):
+        btn = QtWidgets.QToolButton()
+        btn.setToolTip(tooltip)
+        btn.setCursor(QtGui.QCursor(QtCore.Qt.CursorShape.PointingHandCursor))
+        btn.setAutoRaise(True)
+        btn.setIcon(icon)
+        btn.setIconSize(QtCore.QSize(28, 28))
+        btn.setFixedSize(34, 34)
+        btn.clicked.connect(lambda checked=False, link=url: webbrowser.open(link))
+        return btn
+
     def __init__(self):
         super().__init__()
         self.default_map_center = [48.77, 8.23]  # Landkreis Rastatt
         self.default_map_zoom = 11
         self.excluded_area_keys = set()
         self.current_map_html_path = None
+        self.last_map_payload = None
         self.theme = self._detect_system_theme()
         self.language = "Deutsch"
         self.units = "Metric"
@@ -520,6 +707,59 @@ class MainWindow(QtWidgets.QMainWindow):
         form = QtWidgets.QFormLayout()
         form.setSpacing(8)
         form.setContentsMargins(10, 10, 10, 10)
+
+        links_row = QtWidgets.QHBoxLayout()
+        links_row.setContentsMargins(10, 4, 10, 2)
+        links_row.setSpacing(8)
+
+        survey_icon = self._icon_from_url(
+            "https://survey123.arcgis.com/assets/img/Survey123_for_ArcGIS_220-ba28fef2.png",
+            fallback=self._badge_icon("S123", "#6A1B9A"),
+        )
+        arcgis_icon = self._icon_from_url(
+            "https://kitzrettungrabad.maps.arcgis.com/favicon.ico",
+            fallback=self._badge_icon("AG", "#0079C1"),
+        )
+        home_icon = self._homepage_logo_icon()
+
+        self.survey_link_btn = self._make_link_button(
+            survey_icon,
+            self.strings.get("link_survey_tip", "Survey123 öffnen"),
+            "https://survey123.arcgis.com/surveys/e6d87e0a84674ec19e836aa14c1a259d/data",
+        )
+        links_row.addWidget(self.survey_link_btn)
+
+        self.arcgis_link_btn = self._make_link_button(
+            arcgis_icon,
+            self.strings.get("link_arcgis_tip", "ArcGIS Map öffnen"),
+            "https://kitzrettungrabad.maps.arcgis.com/apps/mapviewer/index.html?webmap=268bfe646cc34f0ca95800a6a85b9425",
+        )
+        links_row.addWidget(self.arcgis_link_btn)
+
+        self.home_link_btn = self._make_link_button(
+            home_icon,
+            self.strings.get("link_home_tip", "Homepage öffnen"),
+            "https://kitzrettung-kitzrettungrabad.hub.arcgis.com/",
+        )
+        links_row.addWidget(self.home_link_btn)
+
+        self.toilet_btn = QtWidgets.QToolButton()
+        self.toilet_btn.setToolTip(self.strings.get("toilet_tip", "Klopapierrolle"))
+        self.toilet_btn.setCursor(
+            QtGui.QCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+        )
+        self.toilet_btn.setAutoRaise(True)
+        self.toilet_btn.setText("🧻")
+        toilet_font = self.toilet_btn.font()
+        toilet_font.setPointSize(14)
+        self.toilet_btn.setFont(toilet_font)
+        self.toilet_btn.setFixedSize(34, 34)
+        self.toilet_btn.clicked.connect(self._show_toilet_message)
+        links_row.addWidget(self.toilet_btn)
+
+        links_row.addStretch(1)
+        input_layout.addLayout(links_row)
+
         # File selection rows
         self.kmz_edit = QtWidgets.QLineEdit()
         self.kmz_btn = QtWidgets.QPushButton("…")
@@ -654,6 +894,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.progress = QtWidgets.QProgressBar()
         self.progress.setMaximum(100)
         self.progress.setValue(0)
+        self.progress.setTextVisible(False)
+        self.progress.setFixedHeight(8)
         self.progress.setVisible(False)
         input_layout.addWidget(self.progress)
 
@@ -697,8 +939,22 @@ class MainWindow(QtWidgets.QMainWindow):
 
         input_layout.addLayout(button_layout)
 
-        # Add stretch to push content to top
-        input_layout.addStretch()
+        # --- Unteres Panel links: Output/Logs ---
+        output_panel = QtWidgets.QWidget()
+        output_panel.setMinimumHeight(140)
+        output_layout = QtWidgets.QVBoxLayout(output_panel)
+        output_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.output_label = QtWidgets.QLabel(self.strings["output"])
+        self.output_label.setObjectName("outputLabel")
+        output_layout.addWidget(self.output_label)
+
+        self.log = QtWidgets.QPlainTextEdit()
+        self.log.setReadOnly(True)
+        self.log.setMinimumHeight(120)
+        output_layout.addWidget(self.log)
+
+        input_layout.addWidget(output_panel)
 
         input_panel.setMinimumWidth(520)
         main_splitter.addWidget(input_panel)
@@ -741,34 +997,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self.map_fallback_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
             map_layout.addWidget(self.map_fallback_label)
 
-        # Rechtes Panel: Karte oben, Ausgabe unten
+        # Rechtes Panel: nur Karte (volle Höhe)
         right_panel = QtWidgets.QWidget()
         right_layout = QtWidgets.QVBoxLayout(right_panel)
         right_layout.setContentsMargins(0, 0, 0, 0)
-
-        right_splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
-        right_splitter.addWidget(self.map_panel)
-
-        # --- Unteres Panel: Output/Logs ---
-        output_panel = QtWidgets.QWidget()
-        output_panel.setMinimumHeight(95)
-        output_layout = QtWidgets.QVBoxLayout(output_panel)
-        output_layout.setContentsMargins(0, 0, 0, 0)
-
-        self.output_label = QtWidgets.QLabel(self.strings["output"])
-        self.output_label.setObjectName("outputLabel")
-        output_layout.addWidget(self.output_label)
-
-        self.log = QtWidgets.QPlainTextEdit()
-        self.log.setReadOnly(True)
-        self.log.setMaximumHeight(160)
-        output_layout.addWidget(self.log)
-
-        right_splitter.addWidget(output_panel)
-        right_splitter.setStretchFactor(0, 5)
-        right_splitter.setStretchFactor(1, 1)
-
-        right_layout.addWidget(right_splitter)
+        right_layout.addWidget(self.map_panel)
 
         right_panel.setMinimumWidth(520)
         main_splitter.addWidget(right_panel)
@@ -776,11 +1009,9 @@ class MainWindow(QtWidgets.QMainWindow):
         main_splitter.setStretchFactor(1, 3)
 
         self.main_splitter = main_splitter
-        self.right_splitter = right_splitter
         main_layout.addWidget(self.main_splitter)
 
         self.main_splitter.setSizes([540, 900])
-        self.right_splitter.setSizes([560, 120])
 
         self.status = self.statusBar()
         self.status.showMessage(self.strings["ready"])
@@ -1211,6 +1442,21 @@ class MainWindow(QtWidgets.QMainWindow):
                 )
             )
 
+        if hasattr(self, "survey_link_btn"):
+            self.survey_link_btn.setToolTip(
+                self.strings.get("link_survey_tip", "Survey123 öffnen")
+            )
+        if hasattr(self, "arcgis_link_btn"):
+            self.arcgis_link_btn.setToolTip(
+                self.strings.get("link_arcgis_tip", "ArcGIS Map öffnen")
+            )
+        if hasattr(self, "home_link_btn"):
+            self.home_link_btn.setToolTip(
+                self.strings.get("link_home_tip", "Homepage öffnen")
+            )
+        if hasattr(self, "toilet_btn"):
+            self.toilet_btn.setToolTip(self.strings.get("toilet_tip", "Klopapierrolle"))
+
         # Recreate menu bar for language change
         menubar = self.menuBar()
         menubar.clear()
@@ -1218,6 +1464,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Update status bar
         self.status.showMessage(self.strings["ready"])
+
+        # Refresh map texts in embedded map HTML (title/controls in white overlay)
+        self._refresh_map_language_texts()
 
     def changeEvent(self, event):
         super().changeEvent(event)
@@ -1575,8 +1824,57 @@ class MainWindow(QtWidgets.QMainWindow):
         line_items_json = json.dumps(mapping_line_items or [], ensure_ascii=False)
         flight_stats_json = json.dumps(flight_stats or {}, ensure_ascii=False)
         title_json = json.dumps(title, ensure_ascii=False)
-        remove_label = json.dumps("Fläche entfernen", ensure_ascii=False)
-        add_label = json.dumps("Fläche wieder aufnehmen", ensure_ascii=False)
+        remove_label = json.dumps(
+            self.strings.get("map_remove_area", "Fläche entfernen"),
+            ensure_ascii=False,
+        )
+        add_label = json.dumps(
+            self.strings.get("map_readd_area", "Fläche wieder aufnehmen"),
+            ensure_ascii=False,
+        )
+        opt_disabled_json = json.dumps(
+            self.strings.get("map_opt_disabled", "Winkeloptimierung ist deaktiviert."),
+            ensure_ascii=False,
+        )
+        stats_active_json = json.dumps(
+            self.strings.get("map_stats_active_areas", "Flächen aktiv"),
+            ensure_ascii=False,
+        )
+        stats_distance_json = json.dumps(
+            self.strings.get("map_stats_distance", "Geschätzte Strecke"),
+            ensure_ascii=False,
+        )
+        stats_time_json = json.dumps(
+            self.strings.get("map_stats_time", "Geschätzte Flugzeit"),
+            ensure_ascii=False,
+        )
+        stats_lines_json = json.dumps(
+            self.strings.get("map_stats_lines", "Linien"),
+            ensure_ascii=False,
+        )
+        stats_drone_json = json.dumps(
+            self.strings.get("map_stats_drone", "Drohne"),
+            ensure_ascii=False,
+        )
+        stats_altitude_json = json.dumps(
+            self.strings.get("map_stats_altitude", "Höhe"),
+            ensure_ascii=False,
+        )
+        stats_overlap_json = json.dumps(
+            self.strings.get("map_stats_overlap", "Überlapp"),
+            ensure_ascii=False,
+        )
+        stats_speed_json = json.dumps(
+            self.strings.get("map_stats_speed", "Speed"),
+            ensure_ascii=False,
+        )
+        leaflet_error_json = json.dumps(
+            self.strings.get(
+                "map_leaflet_error",
+                "Leaflet konnte nicht geladen werden (Offline/Netzwerk).",
+            ),
+            ensure_ascii=False,
+        )
         center = default_center or self.default_map_center
         center_json = json.dumps(center, ensure_ascii=False)
         return f"""<!doctype html>
@@ -1627,10 +1925,10 @@ class MainWindow(QtWidgets.QMainWindow):
 <body>
   <div id=\"map\"></div>
     <div id="controls">
-        <div class="row"><strong>Kartierungslinien</strong></div>
+        <div class="row"><strong>{self.strings.get("map_controls_title", "Kartierungslinien")}</strong></div>
         <div class="row">
             <label>
-                <input id="toggle-lines" type="checkbox" /> Linien anzeigen
+                <input id="toggle-lines" type="checkbox" /> {self.strings.get("map_controls_toggle", "Linien anzeigen")}
             </label>
         </div>
         <div id="flight-stats" class="stats"></div>
@@ -1656,6 +1954,16 @@ class MainWindow(QtWidgets.QMainWindow):
         const defaultZoom = {int(default_zoom)};
         const removeLabel = {remove_label};
         const addLabel = {add_label};
+        const optDisabledText = {opt_disabled_json};
+        const statsActiveText = {stats_active_json};
+        const statsDistanceText = {stats_distance_json};
+        const statsTimeText = {stats_time_json};
+        const statsLinesText = {stats_lines_json};
+        const statsDroneText = {stats_drone_json};
+        const statsAltitudeText = {stats_altitude_json};
+        const statsOverlapText = {stats_overlap_json};
+        const statsSpeedText = {stats_speed_json};
+        const leafletErrorText = {leaflet_error_json};
         const excluded = new Set(features.filter(f => !!f.excluded).map(f => f.key));
         let bridge = null;
         const layersByKey = new Map();
@@ -1689,7 +1997,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     mapNode.style.justifyContent = 'center';
                     mapNode.style.fontFamily = 'Arial, sans-serif';
                     mapNode.style.fontSize = '13px';
-                    mapNode.textContent = 'Leaflet konnte nicht geladen werden (Offline/Netzwerk).';
+                    mapNode.textContent = leafletErrorText;
                 }}
                 return;
             }}
@@ -1708,7 +2016,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
             function formatStats() {{
                 if (!optimizationActive) {{
-                    if (statsNode) statsNode.innerHTML = '<span class="muted">Winkeloptimierung ist deaktiviert.</span>';
+                    if (statsNode) statsNode.innerHTML = '<span class="muted">' + escapeHtml(optDisabledText) + '</span>';
                     return;
                 }}
 
@@ -1732,15 +2040,15 @@ class MainWindow(QtWidgets.QMainWindow):
 
                 if (statsNode) {{
                     statsNode.innerHTML =
-                        '<div>Flächen aktiv: <b>' + areas + '</b></div>' +
-                        '<div>Geschätzte Strecke: <b>' + totalDistance.toFixed(1) + ' m</b></div>' +
-                        '<div>Geschätzte Flugzeit: <b>' + minutes.toFixed(1) + ' min</b></div>' +
-                        '<div>Linien: <b>' + Math.round(totalLines) + '</b></div>' +
+                        '<div>' + escapeHtml(statsActiveText) + ': <b>' + areas + '</b></div>' +
+                        '<div>' + escapeHtml(statsDistanceText) + ': <b>' + totalDistance.toFixed(1) + ' m</b></div>' +
+                        '<div>' + escapeHtml(statsTimeText) + ': <b>' + minutes.toFixed(1) + ' min</b></div>' +
+                        '<div>' + escapeHtml(statsLinesText) + ': <b>' + Math.round(totalLines) + '</b></div>' +
                         '<div class="muted">' +
-                            'Drohne ' + escapeHtml(drone) +
-                            ' · Höhe ' + altitude.toFixed(1) + ' m' +
-                            ' · Überlapp ' + overlap.toFixed(0) + '%' +
-                            ' · Speed ' + speed.toFixed(1) + ' m/s' +
+                            escapeHtml(statsDroneText) + ' ' + escapeHtml(drone) +
+                            ' · ' + escapeHtml(statsAltitudeText) + ' ' + altitude.toFixed(1) + ' m' +
+                            ' · ' + escapeHtml(statsOverlapText) + ' ' + overlap.toFixed(0) + '%' +
+                            ' · ' + escapeHtml(statsSpeedText) + ' ' + speed.toFixed(1) + ' m/s' +
                         '</div>';
                 }}
             }}
@@ -1877,7 +2185,7 @@ class MainWindow(QtWidgets.QMainWindow):
             }}
 
             const legend = document.getElementById('legend');
-            legend.innerHTML = '<strong>' + escapeHtml(title) + '</strong><hr style="margin:6px 0;">';
+            legend.innerHTML = '';
             for (const [applicant, color] of Object.entries(colors).sort((a, b) => a[0].localeCompare(b[0], 'de'))) {{
                 const row = document.createElement('div');
                 row.className = 'legend-item';
@@ -1916,15 +2224,57 @@ class MainWindow(QtWidgets.QMainWindow):
         html_path.write_text(html, encoding="utf-8")
         return html_path
 
-    def _write_default_map(self):
+    def _render_map_from_payload(
+        self,
+        payload: dict,
+        force_reload: bool = False,
+        log_open: bool = False,
+    ) -> Path:
         html = self._build_satellite_map_html(
-            [],
-            {},
-            default_center=self.default_map_center,
-            default_zoom=self.default_map_zoom,
+            payload.get("map_items", []),
+            payload.get("color_map", {}),
+            mapping_line_items=payload.get("mapping_line_items", []),
+            flight_stats=payload.get("flight_stats", {}),
+            default_center=payload.get("default_center", self.default_map_center),
+            default_zoom=int(payload.get("default_zoom", self.default_map_zoom)),
         )
         html_path = self._save_map_html(html)
-        self._open_map_preview(html_path, fallback_to_browser=False, log_open=False)
+        self._open_map_preview(
+            html_path,
+            fallback_to_browser=False,
+            log_open=log_open,
+            force_reload=force_reload,
+        )
+        return html_path
+
+    def _refresh_map_language_texts(self):
+        if self.map_view is None:
+            return
+        payload = self.last_map_payload or {
+            "map_items": [],
+            "color_map": {},
+            "mapping_line_items": [],
+            "flight_stats": {},
+            "default_center": self.default_map_center,
+            "default_zoom": self.default_map_zoom,
+        }
+        self.last_map_payload = payload
+        self._render_map_from_payload(payload, force_reload=True, log_open=False)
+
+    def _write_default_map(self):
+        self.last_map_payload = {
+            "map_items": [],
+            "color_map": {},
+            "mapping_line_items": [],
+            "flight_stats": {},
+            "default_center": self.default_map_center,
+            "default_zoom": self.default_map_zoom,
+        }
+        self._render_map_from_payload(
+            self.last_map_payload,
+            force_reload=False,
+            log_open=False,
+        )
 
     def _update_map_panel_visibility(self):
         if self.map_view is None:
@@ -1934,10 +2284,8 @@ class MainWindow(QtWidgets.QMainWindow):
         is_large = self.isMaximized() or (self.width() >= 1450 and self.height() >= 880)
         if is_large:
             self.main_splitter.setSizes([500, 1000])
-            self.right_splitter.setSizes([700, 110])
         else:
             self.main_splitter.setSizes([540, 900])
-            self.right_splitter.setSizes([560, 120])
 
         html_path = self._map_output_dir() / "satellitenkarte.html"
         if not html_path.exists():
@@ -2007,6 +2355,10 @@ class MainWindow(QtWidgets.QMainWindow):
             return
 
         try:
+            self.progress.setVisible(True)
+            self.progress.setMaximum(0)
+            self.progress.setValue(0)
+            self.map_btn.setEnabled(False)
             self.status.showMessage(self.strings.get("map_loading", "Lade Karte..."))
             self.logln(self.strings.get("map_loading", "Lade Karte..."))
             QtCore.QCoreApplication.processEvents()
@@ -2111,17 +2463,19 @@ class MainWindow(QtWidgets.QMainWindow):
                     "ℹ Optimierung aktiv, aber Linien-Preview wird von diesem Optimizer noch nicht unterstützt."
                 )
 
-            html = self._build_satellite_map_html(
-                map_items,
-                color_map,
-                mapping_line_items=mapping_line_items,
-                flight_stats=flight_stats,
-                default_center=self.default_map_center,
-                default_zoom=self.default_map_zoom,
+            self.last_map_payload = {
+                "map_items": map_items,
+                "color_map": color_map,
+                "mapping_line_items": mapping_line_items,
+                "flight_stats": flight_stats,
+                "default_center": self.default_map_center,
+                "default_zoom": self.default_map_zoom,
+            }
+            html_path = self._render_map_from_payload(
+                self.last_map_payload,
+                force_reload=True,
+                log_open=True,
             )
-            html_path = self._save_map_html(html)
-
-            self._open_map_preview(html_path, force_reload=True)
             self.logln(
                 f"{self.strings.get('map_saved', 'Karte gespeichert')}: {html_path}"
             )
@@ -2135,6 +2489,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self.logln(tb)
             self.status.showMessage(self.strings["error"])
             QtWidgets.QMessageBox.critical(self, self.strings["error"], str(ex))
+        finally:
+            self.progress.setVisible(False)
+            self.progress.setMaximum(100)
+            self.progress.setValue(0)
+            self.map_btn.setEnabled(True)
 
     def convert(self):
         try:
