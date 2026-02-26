@@ -23,6 +23,7 @@ import urllib.request
 import urllib.error
 import urllib.parse
 import tempfile
+import socket
 
 ENGINE_IMPORT_ERROR = None
 optimize_angle_mod = None
@@ -135,6 +136,8 @@ LANGUAGES = {
         "map_stats_overlap": "Überlapp",
         "map_stats_speed": "Speed",
         "map_leaflet_error": "Leaflet konnte nicht geladen werden (Offline/Netzwerk).",
+        "offline_notice_title": "Offline-Hinweis",
+        "offline_notice_message": "Keine Internetverbindung erkannt.\n\nDie Konvertierung von KMZ/KML funktioniert weiterhin.\nKartenansicht und Tagesplan-Routing sind offline eingeschränkt und nutzen ggf. Fallbacks.",
         "link_survey_tip": "Survey123 öffnen",
         "link_arcgis_tip": "ArcGIS Map öffnen",
         "link_home_tip": "Homepage öffnen",
@@ -217,6 +220,8 @@ LANGUAGES = {
         "map_stats_overlap": "Overlap",
         "map_stats_speed": "Speed",
         "map_leaflet_error": "Leaflet could not be loaded (offline/network).",
+        "offline_notice_title": "Offline notice",
+        "offline_notice_message": "No internet connection detected.\n\nKMZ/KML conversion still works.\nMap view and day-plan routing are limited offline and may use fallbacks.",
         "link_survey_tip": "Open Survey123",
         "link_arcgis_tip": "Open ArcGIS Map",
         "link_home_tip": "Open Homepage",
@@ -299,6 +304,8 @@ LANGUAGES = {
         "map_stats_overlap": "Chevauchement",
         "map_stats_speed": "Vitesse",
         "map_leaflet_error": "Leaflet n'a pas pu être chargé (hors ligne/réseau).",
+        "offline_notice_title": "Avis hors ligne",
+        "offline_notice_message": "Aucune connexion Internet détectée.\n\nLa conversion KMZ/KML continue de fonctionner.\nLa carte et le routage du plan du jour sont limités hors ligne et peuvent utiliser des alternatives.",
         "link_survey_tip": "Ouvrir Survey123",
         "link_arcgis_tip": "Ouvrir la carte ArcGIS",
         "link_home_tip": "Ouvrir la page d'accueil",
@@ -381,6 +388,8 @@ LANGUAGES = {
         "map_stats_overlap": "Päällekkäisyys",
         "map_stats_speed": "Nopeus",
         "map_leaflet_error": "Leafletin lataus epäonnistui (offline/verkko).",
+        "offline_notice_title": "Offline-ilmoitus",
+        "offline_notice_message": "Internet-yhteyttä ei havaittu.\n\nKMZ/KML-muunnos toimii silti.\nKarttanäkymä ja päiväsuunnitelman reititys ovat offline-tilassa rajoitettuja ja voivat käyttää vararatkaisuja.",
         "link_survey_tip": "Avaa Survey123",
         "link_arcgis_tip": "Avaa ArcGIS-kartta",
         "link_home_tip": "Avaa kotisivu",
@@ -676,6 +685,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.default_map_center = [48.77, 8.23]  # Landkreis Rastatt
         self.default_map_zoom = 11
         self.excluded_area_keys = set()
+        self._startup_offline_hint_shown = False
         self.current_map_html_path = None
         self.last_map_payload = None
         self.theme = self._detect_system_theme()
@@ -1043,11 +1053,54 @@ class MainWindow(QtWidgets.QMainWindow):
         self._write_default_map()
         self._update_map_panel_visibility()
         self._update_action_buttons_layout()
+        QtCore.QTimer.singleShot(900, self._show_startup_connectivity_hint)
+
+    def _has_network_access(self) -> bool:
+        check_urls = [
+            "https://router.project-osrm.org/",
+            "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
+        ]
+        for url in check_urls:
+            try:
+                req = urllib.request.Request(
+                    url,
+                    headers={"User-Agent": "LittleOne-NetCheck/1.0"},
+                )
+                with urllib.request.urlopen(req, timeout=2.5) as resp:
+                    if int(getattr(resp, "status", 200)) < 500:
+                        return True
+            except Exception:
+                continue
+
+        try:
+            socket.getaddrinfo("github.com", 443)
+            return True
+        except Exception:
+            return False
+
+    def _show_startup_connectivity_hint(self):
+        if self._startup_offline_hint_shown:
+            return
+        if self._has_network_access():
+            return
+
+        self._startup_offline_hint_shown = True
+        self.logln("ℹ Kein Internet erkannt – Konvertierung bleibt verfügbar.")
+        QtWidgets.QMessageBox.information(
+            self,
+            self.strings.get("offline_notice_title", "Offline-Hinweis"),
+            self.strings.get(
+                "offline_notice_message",
+                "Keine Internetverbindung erkannt.\n\nDie Konvertierung von KMZ/KML funktioniert weiterhin.\nKartenansicht und Tagesplan-Routing sind offline eingeschränkt.",
+            ),
+        )
 
     def _update_action_buttons_layout(self):
         if not hasattr(self, "action_buttons") or not self.action_buttons:
             return
-        panel_width = self.input_panel.width() if hasattr(self, "input_panel") else self.width()
+        panel_width = (
+            self.input_panel.width() if hasattr(self, "input_panel") else self.width()
+        )
         available_width = max(0, panel_width - 44)
         button_count = len(self.action_buttons)
 
@@ -1135,7 +1188,7 @@ class MainWindow(QtWidgets.QMainWindow):
         easter_action.triggered.connect(self.open_easter_egg)
 
     def open_easter_egg(self):
-        """Open the ultimate best help source 🎵"""
+        """Open the ultimate best help source"""
         webbrowser.open(
             "https://www.youtube.com/watch?v=xMHJGd3wwZk&list=RDxMHJGd3wwZk&start_radio=1"
         )
