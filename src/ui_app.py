@@ -1634,6 +1634,94 @@ class MainWindow(QtWidgets.QMainWindow):
             nums.append(0)
         return tuple(nums)
 
+    def _is_ssl_cert_error(self, ex: Exception) -> bool:
+        text = str(ex).lower()
+        if (
+            "certificate_verify_failed" in text
+            or "unable to get local issuer certificate" in text
+        ):
+            return True
+
+        reason = getattr(ex, "reason", None)
+        if reason:
+            rtext = str(reason).lower()
+            if (
+                "certificate_verify_failed" in rtext
+                or "unable to get local issuer certificate" in rtext
+            ):
+                return True
+
+        return False
+
+    def _fetch_latest_release_via_powershell(self):
+        api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+        safe_url = api_url.replace("'", "''")
+        script = (
+            "$ProgressPreference='SilentlyContinue';"
+            "$headers=@{Accept='application/vnd.github+json';'User-Agent'='LittleOne-Updater'};"
+            "$r=Invoke-RestMethod -Uri '"
+            + safe_url
+            + "' -Headers $headers -Method Get -TimeoutSec 20;"
+            "$r | ConvertTo-Json -Depth 30 -Compress"
+        )
+
+        proc = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                script,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+        if proc.returncode != 0:
+            stderr = (proc.stderr or "").strip()
+            raise RuntimeError(stderr or "PowerShell release request failed")
+
+        payload = (proc.stdout or "").strip()
+        if not payload:
+            raise RuntimeError("PowerShell release request returned empty response")
+
+        return json.loads(payload)
+
+    def _download_with_powershell(self, url: str, target: Path):
+        safe_url = str(url).replace("'", "''")
+        safe_target = str(target).replace("'", "''")
+        script = (
+            "$ProgressPreference='SilentlyContinue';"
+            "Invoke-WebRequest -Uri '"
+            + safe_url
+            + "' -OutFile '"
+            + safe_target
+            + "' -UseBasicParsing -TimeoutSec 300"
+        )
+
+        proc = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                script,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=330,
+        )
+
+        if proc.returncode != 0:
+            stderr = (proc.stderr or "").strip()
+            raise RuntimeError(stderr or "PowerShell download failed")
+
+        if not target.exists() or target.stat().st_size == 0:
+            raise RuntimeError("Downloaded update file is missing or empty")
+
     def _fetch_latest_release(self):
         api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
         req = urllib.request.Request(
@@ -1643,9 +1731,14 @@ class MainWindow(QtWidgets.QMainWindow):
                 "User-Agent": "LittleOne-Updater",
             },
         )
-        with urllib.request.urlopen(req, timeout=12) as resp:
-            data = resp.read().decode("utf-8", errors="replace")
-        return json.loads(data)
+        try:
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                data = resp.read().decode("utf-8", errors="replace")
+            return json.loads(data)
+        except urllib.error.URLError as ex:
+            if sys.platform == "win32" and self._is_ssl_cert_error(ex):
+                return self._fetch_latest_release_via_powershell()
+            raise
 
     def _pick_windows_asset(self, release_json):
         assets = release_json.get("assets") or []
@@ -1739,7 +1832,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 target = Path(tempfile.gettempdir()) / name
                 self.status.showMessage("Lade Update herunter ...")
                 QtCore.QCoreApplication.processEvents()
-                urllib.request.urlretrieve(url, str(target))
+                try:
+                    urllib.request.urlretrieve(url, str(target))
+                except urllib.error.URLError as ex:
+                    if sys.platform == "win32" and self._is_ssl_cert_error(ex):
+                        self._download_with_powershell(url, target)
+                    else:
+                        raise
 
                 QtWidgets.QMessageBox.information(
                     self,
@@ -1770,10 +1869,16 @@ class MainWindow(QtWidgets.QMainWindow):
                 )
                 self.status.showMessage("Updateprüfung fehlgeschlagen")
         except urllib.error.URLError as ex:
+            extra = ""
+            if self._is_ssl_cert_error(ex):
+                extra = (
+                    "\n\nHinweis: In VPN/Proxy-Netzen kann SSL-Inspection aktiv sein. "
+                    "Bitte Firmen-Zertifikate prüfen oder kurz ohne VPN testen."
+                )
             QtWidgets.QMessageBox.warning(
                 self,
                 "Updatefehler",
-                f"Konnte Update-Informationen nicht laden:\n{ex}",
+                f"Konnte Update-Informationen nicht laden:\n{ex}{extra}",
             )
             self.status.showMessage("Updateprüfung fehlgeschlagen")
         except Exception as ex:
