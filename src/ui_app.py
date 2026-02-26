@@ -1657,12 +1657,16 @@ class MainWindow(QtWidgets.QMainWindow):
         api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
         safe_url = api_url.replace("'", "''")
         script = (
+            "$ErrorActionPreference='Stop';"
             "$ProgressPreference='SilentlyContinue';"
+            "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;"
             "$headers=@{Accept='application/vnd.github+json';'User-Agent'='LittleOne-Updater'};"
-            "$r=Invoke-RestMethod -Uri '"
+            "$resp=Invoke-WebRequest -Uri '"
             + safe_url
-            + "' -Headers $headers -Method Get -TimeoutSec 20;"
-            "$r | ConvertTo-Json -Depth 30 -Compress"
+            + "' -Headers $headers -Method Get -UseBasicParsing -TimeoutSec 20;"
+            "$content=[string]$resp.Content;"
+            "if ([string]::IsNullOrWhiteSpace($content)) { throw 'GitHub API returned empty response content.' };"
+            "[Console]::Out.Write($content)"
         )
 
         proc = subprocess.run(
@@ -1681,19 +1685,28 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if proc.returncode != 0:
             stderr = (proc.stderr or "").strip()
-            raise RuntimeError(stderr or "PowerShell release request failed")
+            stdout = (proc.stdout or "").strip()
+            raise RuntimeError(stderr or stdout or "PowerShell release request failed")
 
         payload = (proc.stdout or "").strip()
         if not payload:
             raise RuntimeError("PowerShell release request returned empty response")
 
-        return json.loads(payload)
+        try:
+            return json.loads(payload)
+        except json.JSONDecodeError as ex:
+            head = payload[:280]
+            raise RuntimeError(
+                f"PowerShell release response is not valid JSON: {ex}. Response head: {head}"
+            )
 
     def _download_with_powershell(self, url: str, target: Path):
         safe_url = str(url).replace("'", "''")
         safe_target = str(target).replace("'", "''")
         script = (
+            "$ErrorActionPreference='Stop';"
             "$ProgressPreference='SilentlyContinue';"
+            "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;"
             "Invoke-WebRequest -Uri '"
             + safe_url
             + "' -OutFile '"
@@ -1717,7 +1730,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if proc.returncode != 0:
             stderr = (proc.stderr or "").strip()
-            raise RuntimeError(stderr or "PowerShell download failed")
+            stdout = (proc.stdout or "").strip()
+            raise RuntimeError(stderr or stdout or "PowerShell download failed")
 
         if not target.exists() or target.stat().st_size == 0:
             raise RuntimeError("Downloaded update file is missing or empty")
