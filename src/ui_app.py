@@ -28,6 +28,7 @@ ENGINE_IMPORT_ERROR = None
 optimize_angle_mod = None
 APP_VERSION = "0.0.0"
 GITHUB_REPO = "messmersvenpriv/LittleOne"
+TOILET_PAPER_URL = "https://www.hygi.de/category/toilettenpapier?msclkid=fdd7cb679dff18c16f86a2f869da95cd"
 
 try:
     from LittleOne import __version__ as PACKAGE_VERSION
@@ -66,7 +67,7 @@ THEMES = {
 
 LANGUAGES = {
     "Deutsch": {
-        "title": "LittleOne - Datenkonvertierungssoftware der Kitzrettung Rastatt Baden-Baden (warum liest du das bis hier?)",
+        "title": "LittleOne - Datenkonvertierungssoftware der Kitzrettung Rastatt Baden-Baden",
         "file": "Datei",
         "settings": "Einstellungen",
         "help": "Hilfe",
@@ -148,7 +149,7 @@ LANGUAGES = {
         "cancel": "Abbrechen",
     },
     "English": {
-        "title": "LittleOne - Datenkonvertierungssoftware der Kitzrettung Rastatt Baden-Baden (warum liest du das bis hier?)",
+        "title": "LittleOne - Datenkonvertierungssoftware der Kitzrettung Rastatt Baden-Baden",
         "file": "File",
         "settings": "Settings",
         "help": "Help",
@@ -230,7 +231,7 @@ LANGUAGES = {
         "cancel": "Cancel",
     },
     "Français": {
-        "title": "LittleOne - Datenkonvertierungssoftware der Kitzrettung Rastatt Baden-Baden (warum liest du das bis hier?)",
+        "title": "LittleOne - Datenkonvertierungssoftware der Kitzrettung Rastatt Baden-Baden",
         "file": "Fichier",
         "settings": "Paramètres",
         "help": "Aide",
@@ -312,7 +313,7 @@ LANGUAGES = {
         "cancel": "Annuler",
     },
     "Suomi": {
-        "title": "LittleOne - Datenkonvertierungssoftware der Kitzrettung Rastatt Baden-Baden (warum liest du das bis hier?)",
+        "title": "LittleOne - Datenkonvertierungssoftware der Kitzrettung Rastatt Baden-Baden",
         "file": "Tiedosto",
         "settings": "Asetukset",
         "help": "Ohje",
@@ -657,6 +658,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 "Was hast du denn jetzt erwartet, dass passiert?\nWeiter machen!",
             ),
         )
+        webbrowser.open(TOILET_PAPER_URL)
 
     def _make_link_button(self, icon: QtGui.QIcon, tooltip: str, url: str):
         btn = QtWidgets.QToolButton()
@@ -706,6 +708,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # --- Oberes Panel: Eingabeberereich ---
         input_panel = QtWidgets.QWidget()
+        self.input_panel = input_panel
         input_panel.setObjectName("inputPanel")
         input_layout = QtWidgets.QVBoxLayout(input_panel)
 
@@ -717,6 +720,7 @@ class MainWindow(QtWidgets.QMainWindow):
         links_row = QtWidgets.QHBoxLayout()
         links_row.setContentsMargins(10, 4, 10, 2)
         links_row.setSpacing(8)
+        links_row.addStretch(1)
 
         survey_icon = self._icon_from_url(
             "https://survey123.arcgis.com/assets/img/Survey123_for_ArcGIS_220-ba28fef2.png",
@@ -907,51 +911,50 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # --- Buttons ---
         button_layout = QtWidgets.QHBoxLayout()
+        self.action_button_layout = button_layout
+        button_layout.setSpacing(10)
 
         self.convert_btn = QtWidgets.QPushButton(self.strings["convert"])
-        self.convert_btn.setMinimumHeight(40)
-        font = self.convert_btn.font()
-        font.setPointSize(11)
-        font.setBold(True)
-        self.convert_btn.setFont(font)
         self.convert_btn.clicked.connect(self.convert)
 
         self.map_btn = QtWidgets.QPushButton(
             self.strings.get("map_refresh", "Karte aktualisieren")
         )
-        self.map_btn.setMinimumHeight(40)
-        map_font = self.map_btn.font()
-        map_font.setPointSize(10)
-        self.map_btn.setFont(map_font)
         self.map_btn.clicked.connect(self.show_satellite_map)
 
         self.day_plan_btn = QtWidgets.QPushButton(
             self.strings.get("day_plan", "Tagesplan")
         )
-        self.day_plan_btn.setMinimumHeight(40)
-        day_plan_font = self.day_plan_btn.font()
-        day_plan_font.setPointSize(10)
-        self.day_plan_btn.setFont(day_plan_font)
         self.day_plan_btn.clicked.connect(self.generate_day_plan)
 
         self.reset_btn = QtWidgets.QPushButton(
             self.strings.get("reset", "Zurücksetzen")
         )
-        self.reset_btn.setMinimumHeight(40)
-        reset_font = self.reset_btn.font()
-        reset_font.setPointSize(10)
-        self.reset_btn.setFont(reset_font)
         self.reset_btn.clicked.connect(self.reset_to_defaults)
 
-        self.convert_btn.setMinimumWidth(180)
-        self.map_btn.setMinimumWidth(180)
-        self.day_plan_btn.setMinimumWidth(180)
-        self.reset_btn.setMinimumWidth(160)
+        action_btn_font = self.convert_btn.font()
+        action_btn_font.setPointSize(10)
+        self.action_buttons = [
+            self.convert_btn,
+            self.map_btn,
+            self.day_plan_btn,
+            self.reset_btn,
+        ]
+        for btn in self.action_buttons:
+            btn.setFont(action_btn_font)
+            btn.setFixedHeight(40)
+            btn.setFixedWidth(150)
+            btn.setSizePolicy(
+                QtWidgets.QSizePolicy.Policy.Fixed,
+                QtWidgets.QSizePolicy.Policy.Fixed,
+            )
 
-        button_layout.addWidget(self.convert_btn, stretch=2)
-        button_layout.addWidget(self.map_btn, stretch=1)
-        button_layout.addWidget(self.day_plan_btn, stretch=1)
-        button_layout.addWidget(self.reset_btn, stretch=1)
+        button_layout.addStretch(1)
+        button_layout.addWidget(self.convert_btn)
+        button_layout.addWidget(self.map_btn)
+        button_layout.addWidget(self.day_plan_btn)
+        button_layout.addWidget(self.reset_btn)
+        button_layout.addStretch(1)
         button_layout.setContentsMargins(0, 5, 0, 5)
 
         input_layout.addLayout(button_layout)
@@ -1026,6 +1029,9 @@ class MainWindow(QtWidgets.QMainWindow):
         main_splitter.setStretchFactor(1, 3)
 
         self.main_splitter = main_splitter
+        self.main_splitter.splitterMoved.connect(
+            lambda _pos, _index: self._update_action_buttons_layout()
+        )
         main_layout.addWidget(self.main_splitter)
 
         self.main_splitter.setSizes([540, 900])
@@ -1036,6 +1042,28 @@ class MainWindow(QtWidgets.QMainWindow):
         self._apply_theme()
         self._write_default_map()
         self._update_map_panel_visibility()
+        self._update_action_buttons_layout()
+
+    def _update_action_buttons_layout(self):
+        if not hasattr(self, "action_buttons") or not self.action_buttons:
+            return
+        panel_width = self.input_panel.width() if hasattr(self, "input_panel") else self.width()
+        available_width = max(0, panel_width - 44)
+        button_count = len(self.action_buttons)
+
+        spacing = 10
+        width_per_button = (
+            (available_width - spacing * (button_count - 1)) // button_count
+            if button_count > 0
+            else 150
+        )
+        target_width = max(118, min(150, width_per_button))
+
+        if hasattr(self, "action_button_layout"):
+            self.action_button_layout.setSpacing(8 if target_width <= 125 else 10)
+
+        for btn in self.action_buttons:
+            btn.setFixedWidth(target_width)
 
     def _create_menu_bar(self):
         menubar = self.menuBar()
@@ -1308,9 +1336,8 @@ class MainWindow(QtWidgets.QMainWindow):
         QPushButton#convertBtn {{
             background-color: {accent};
             color: white;
-            padding: 10px 18px;
-            font-weight: bold;
-            font-size: 11pt;
+            padding: 8px 14px;
+            font-weight: 600;
         }}
         QPushButton#convertBtn:hover {{
             background-color: {accent};
@@ -1483,6 +1510,8 @@ class MainWindow(QtWidgets.QMainWindow):
         # Update status bar
         self.status.showMessage(self.strings["ready"])
 
+        self._update_action_buttons_layout()
+
         # Refresh map texts in embedded map HTML (title/controls in white overlay)
         self._refresh_map_language_texts()
 
@@ -1494,6 +1523,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._update_map_panel_visibility()
+        self._update_action_buttons_layout()
 
     def show_about(self):
         QtWidgets.QMessageBox.information(
