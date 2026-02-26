@@ -5,5 +5,8 @@ build/
 dist/
 *.spec
 .vscode/.ropeproject
-Releases/*.exe
-Releases/*.zip
+Releases/
+stage/
+tools/gh/
+tools/nuget/
+tools/squirrel/

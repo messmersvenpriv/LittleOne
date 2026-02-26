@@ -162,10 +162,26 @@ Alle Menüs, Felder & Meldungen passen sich automatisch an.
 - Menüpunkt: **Einstellungen → Nach Updates suchen**
 - Die App-Version kommt aus `src/LittleOne/__init__.py` (`__version__`)
 - Empfohlener Ablauf vor Release:
-  1. `__version__` erhöhen
-  2. EXE neu bauen
-  3. GitHub-Release mit passendem Tag erstellen (z. B. `v0.2.1`)
-  4. EXE als Asset hochladen
+  1. Version in `src/LittleOne/__init__.py` erhöhen
+  2. Vollautomatisch per 1-Klick starten (Doppelklick):
+    - `START_RELEASE.cmd`
+    - (alternativ im Terminal) `powershell -ExecutionPolicy Bypass -File .\scripts\release_silent.ps1`
+  3. Das Silent-Skript synchronisiert automatisch `pyproject.toml` auf die Version aus `__init__.py` und startet danach den Release-Flow ohne Rückfragen.
+  4. Optional manuell mit Assistent starten:
+    - `powershell -ExecutionPolicy Bypass -File .\scripts\release_assistent.ps1`
+  5. Der automatische Flow erledigt:
+    - EXE-Build + Squirrel-Artefakte
+    - Git (`add`, `commit`, `tag`, `push`)
+    - GitHub-Release (wenn `gh` installiert und eingeloggt)
+    - Anleitung für Entwickler + Anwender
+  6. Ergebnis prüfen in `Releases/`:
+    - `mail/LittleOne-Setup.exe`
+    - `squirrel/RELEASES`
+    - `squirrel/*.nupkg`
+    - `release_instructions.md`
+  7. Detaillierte Setup- und Release-Anleitung: `RELEASE_ANLEITUNG.md`
+
+Hinweis: Der Update-Button bevorzugt automatisch den Installer (`Setup*.exe`) aus dem neuesten Release.
 
 ---
 
@@ -216,12 +232,17 @@ LittleOne versucht zu korrigieren, aber bei sehr komplexen Gebieten kann eine ma
 
 ## Installation & Download
 
-### Option A: Portable Exe (Empfohlen)
-- **Download:** `LittleOne.exe` (ca. 150 MB)
-- **Installation:** Keine – einfach starten
+### Option A: Installer (Empfohlen für Teams + Updates)
+- **Download:** `LittleOne-Setup.exe` (kleine Versanddatei für Mail/Chat)
+- **Installation:** Doppelklick, automatische Benutzer-Installation
 - **System:** Windows 10/11 64-Bit
-- **Admin-Rechte:** Nicht nötig (außer für schreibgeschützte Ordner)
-- **Weitergabe im Team:** EXE versenden, lokal starten oder Desktop-Verknüpfung erstellen
+- **Admin-Rechte:** Nicht nötig
+- **Updatefähig:** Ja, über **Einstellungen → Nach Updates suchen**
+
+### Option B: Portable Exe
+- **Download:** `LittleOne.exe`
+- **Installation:** Keine – direkt startbar
+- **Updatefähig:** Nein (für Updates neue EXE verteilen)
 
 ### Option B: Python Source Code
 Für Entwickler:

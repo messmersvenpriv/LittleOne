@@ -1654,7 +1654,21 @@ class MainWindow(QtWidgets.QMainWindow):
         ]
         if not exe_assets:
             return None
-        preferred = sorted(exe_assets, key=lambda x: len(str(x.get("name", ""))))
+
+        def _rank(asset):
+            name = str(asset.get("name", "")).lower()
+            if "setup" in name:
+                return 0
+            if "install" in name:
+                return 1
+            if "littleone" in name:
+                return 2
+            return 3
+
+        preferred = sorted(
+            exe_assets,
+            key=lambda x: (_rank(x), len(str(x.get("name", "")))),
+        )
         return preferred[0]
 
     def check_for_updates(self):
@@ -1692,7 +1706,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 asset and getattr(sys, "frozen", False) and sys.platform == "win32"
             )
             if can_auto_install:
-                msg += "Jetzt herunterladen und Update starten?"
+                msg += (
+                    "Jetzt Installer herunterladen und Update starten?\n"
+                    "(Bevorzugt wird Setup.exe aus dem Release)"
+                )
             else:
                 msg += "Download-Seite öffnen?"
 
@@ -1713,7 +1730,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     self.status.showMessage("Release-Seite geöffnet")
                     return
                 url = asset.get("browser_download_url")
-                name = asset.get("name") or "LittleOne-Update.exe"
+                name = asset.get("name") or "LittleOne-Setup.exe"
                 if not url:
                     webbrowser.open(release_page)
                     self.status.showMessage("Release-Seite geöffnet")
@@ -1727,7 +1744,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 QtWidgets.QMessageBox.information(
                     self,
                     "Update",
-                    "Update wurde geladen. Der Installer wird jetzt gestartet.",
+                    "Update wurde geladen. Der Installer wird jetzt gestartet."
+                    "\n\nBitte Rückfragen der Windows-Sicherheit bestätigen.",
                 )
                 subprocess.Popen([str(target)])
                 QtWidgets.QApplication.quit()
