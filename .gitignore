@@ -4,3 +4,5 @@ __pycache__/
 build/
 *.spec
 .vscode/.ropeproject
+Releases/*.exe
+Releases/*.zip

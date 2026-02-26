@@ -1117,7 +1117,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Documentation
         help_menu.addSeparator()
         doc_action = help_menu.addAction(
-            "📖 " + self.strings.get("documentation", "Dokumentation")
+            self.strings.get("documentation", "Dokumentation")
         )
         doc_action.triggered.connect(self.open_documentation)
 
@@ -1682,6 +1682,22 @@ class MainWindow(QtWidgets.QMainWindow):
 
             webbrowser.open(release_page)
             self.status.showMessage("Release-Seite geöffnet")
+        except urllib.error.HTTPError as ex:
+            if ex.code == 404:
+                QtWidgets.QMessageBox.information(
+                    self,
+                    "Updates",
+                    "Es wurde kein veröffentlichter GitHub-Release gefunden (HTTP 404).\n"
+                    "Bitte veröffentliche einen Release (nicht nur Tag) oder prüfe die Repository-Sichtbarkeit.",
+                )
+                self.status.showMessage("Kein veröffentlichter Release gefunden")
+            else:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Updatefehler",
+                    f"Konnte Update-Informationen nicht laden (HTTP {ex.code}):\n{ex.reason}",
+                )
+                self.status.showMessage("Updateprüfung fehlgeschlagen")
         except urllib.error.URLError as ex:
             QtWidgets.QMessageBox.warning(
                 self,
