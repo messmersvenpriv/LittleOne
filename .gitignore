@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 build/
+dist/
 *.spec
 .vscode/.ropeproject
 Releases/*.exe
