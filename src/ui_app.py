@@ -567,6 +567,10 @@ class MapBridge(QtCore.QObject):
     def toggleArea(self, area_key: str):
         self.window.toggle_area_exclusion(area_key)
 
+    @QtCore.Slot(str)
+    def setStartArea(self, area_key: str):
+        self.window.set_start_area(area_key)
+
 
 class MainWindow(QtWidgets.QMainWindow):
     def _resource_path(self, relative_path: str) -> Path:
@@ -685,6 +689,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.default_map_center = [48.77, 8.23]  # Landkreis Rastatt
         self.default_map_zoom = 11
         self.excluded_area_keys = set()
+        self.selected_start_area_key = None
         self._startup_offline_hint_shown = False
         self.current_map_html_path = None
         self.last_map_payload = None
@@ -953,9 +958,8 @@ class MainWindow(QtWidgets.QMainWindow):
         for btn in self.action_buttons:
             btn.setFont(action_btn_font)
             btn.setFixedHeight(40)
-            btn.setFixedWidth(150)
             btn.setSizePolicy(
-                QtWidgets.QSizePolicy.Policy.Fixed,
+                QtWidgets.QSizePolicy.Policy.Minimum,
                 QtWidgets.QSizePolicy.Policy.Fixed,
             )
 
@@ -1101,22 +1105,73 @@ class MainWindow(QtWidgets.QMainWindow):
         panel_width = (
             self.input_panel.width() if hasattr(self, "input_panel") else self.width()
         )
-        available_width = max(0, panel_width - 44)
+        available_width = max(0, panel_width - 16)
         button_count = len(self.action_buttons)
 
-        spacing = 10
-        width_per_button = (
-            (available_width - spacing * (button_count - 1)) // button_count
-            if button_count > 0
-            else 150
-        )
-        target_width = max(118, min(150, width_per_button))
+        if button_count <= 0:
+            return
+
+        large_button_width = 140
+        min_button_width = 72
+        max_button_width = 220
+
+        content_widths = []
+        desired_widths = []
+        for btn in self.action_buttons:
+            text_width = btn.fontMetrics().horizontalAdvance(btn.text())
+            content_width = max(
+                min_button_width, min(max_button_width, text_width + 36)
+            )
+            content_widths.append(content_width)
+            desired_widths.append(max(large_button_width, content_width))
+
+        spacing_value = 10
+        min_total = sum(content_widths) + spacing_value * (button_count - 1)
+        for candidate_spacing in (10, 8, 6, 4):
+            candidate_total = sum(content_widths) + candidate_spacing * (
+                button_count - 1
+            )
+            if candidate_total <= available_width:
+                spacing_value = candidate_spacing
+                min_total = candidate_total
+                break
+
+        desired_total = sum(desired_widths) + spacing_value * (button_count - 1)
+
+        if desired_total <= available_width:
+            target_widths = desired_widths
+        elif min_total <= available_width:
+            extra_width = available_width - min_total
+            demands = [
+                max(0, desired_widths[i] - content_widths[i])
+                for i in range(button_count)
+            ]
+            demand_total = sum(demands)
+
+            if demand_total <= 0:
+                target_widths = content_widths
+            else:
+                additions = [
+                    int(extra_width * demand / demand_total) for demand in demands
+                ]
+                remainder = extra_width - sum(additions)
+                for i in range(remainder):
+                    additions[i % button_count] += 1
+                target_widths = [
+                    content_widths[i] + additions[i] for i in range(button_count)
+                ]
+        else:
+            width_per_button = max(
+                min_button_width,
+                (available_width - spacing_value * (button_count - 1)) // button_count,
+            )
+            target_widths = [width_per_button for _ in self.action_buttons]
 
         if hasattr(self, "action_button_layout"):
-            self.action_button_layout.setSpacing(8 if target_width <= 125 else 10)
+            self.action_button_layout.setSpacing(spacing_value)
 
-        for btn in self.action_buttons:
-            btn.setFixedWidth(target_width)
+        for i, btn in enumerate(self.action_buttons):
+            btn.setFixedWidth(target_widths[i])
 
     def _create_menu_bar(self):
         menubar = self.menuBar()
@@ -1921,6 +1976,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if dlg.exec():
             self.kmz_edit.setText(dlg.selectedFiles()[0])
             self.excluded_area_keys.clear()
+            self.selected_start_area_key = None
 
     def pick_out(self):
         dir_ = QtWidgets.QFileDialog.getExistingDirectory(
@@ -2171,14 +2227,19 @@ class MainWindow(QtWidgets.QMainWindow):
                         improved = True
         return best
 
-    def _optimize_visit_order(self, matrix):
+    def _optimize_visit_order(self, matrix, fixed_start: int | None = None):
         n = len(matrix)
         if n <= 1:
             return [0]
 
         best_order = None
         best_cost = float("inf")
-        for start in range(n):
+        starts = (
+            [int(fixed_start)]
+            if fixed_start is not None and 0 <= int(fixed_start) < n
+            else list(range(n))
+        )
+        for start in starts:
             unvisited = set(range(n))
             order = [start]
             unvisited.remove(start)
@@ -2251,7 +2312,116 @@ class MainWindow(QtWidgets.QMainWindow):
             "source": "geo",
         }
 
-    def _build_day_plan(self, entries):
+    def _geocode_address(self, address: str):
+        query = (address or "").strip()
+        if not query:
+            raise ValueError("Leere Adresse")
+
+        params = urllib.parse.urlencode(
+            {
+                "q": query,
+                "format": "json",
+                "limit": "1",
+                "addressdetails": "0",
+            }
+        )
+        req = urllib.request.Request(
+            f"https://nominatim.openstreetmap.org/search?{params}",
+            headers={"User-Agent": "LittleOne-DayPlan/1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=14) as resp:
+            payload = resp.read().decode("utf-8", errors="replace")
+        data = json.loads(payload)
+        if not isinstance(data, list) or not data:
+            raise ValueError("Adresse nicht gefunden")
+
+        hit = data[0]
+        lat = float(hit.get("lat"))
+        lon = float(hit.get("lon"))
+        name = str(hit.get("display_name") or query).strip()
+        return (lon, lat), name
+
+    def _ask_day_plan_start(self):
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle(self.strings.get("day_plan", "Tagesplan"))
+        dialog.resize(560, 210)
+
+        layout = QtWidgets.QVBoxLayout(dialog)
+        label = QtWidgets.QLabel(
+            "Bitte zuerst eine Startfläche in der Karte auswählen\n"
+            "oder hier den Startpunkt (Wohnort) eingeben."
+        )
+        label.setWordWrap(True)
+        layout.addWidget(label)
+
+        edit = QtWidgets.QLineEdit()
+        edit.setPlaceholderText(
+            "Startpunkt (Wohnort), z. B. Musterstraße 1, 76437 Rastatt"
+        )
+        layout.addWidget(edit)
+
+        hint = QtWidgets.QLabel(
+            "Leer lassen, wenn Sie die Startfläche direkt in der Karte festlegen möchten."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #666;")
+        layout.addWidget(hint)
+
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Ok
+            | QtWidgets.QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec() != int(QtWidgets.QDialog.DialogCode.Accepted):
+            return {"cancelled": True, "address": ""}
+
+        return {"cancelled": False, "address": edit.text().strip()}
+
+    def _estimate_flight_times(self, active_entries):
+        optimizer = optimize_angle_mod
+        if optimizer is None or not hasattr(optimizer, "mapping_preview"):
+            return {}
+
+        def _num(value, default=0.0):
+            try:
+                return float(value)
+            except Exception:
+                return float(default)
+
+        metric_values = self._get_metric_values()
+        result = {}
+        for entry in active_entries:
+            try:
+                preview = optimizer.mapping_preview(
+                    entry["geom"],
+                    altitude_m=float(metric_values["altitude"]),
+                    side_overlap_percent=float(self.overlap_spin.value()),
+                    speed_mps=float(metric_values["speed"]),
+                    drone=self.drone_combo.currentText(),
+                )
+                result[entry["key"]] = {
+                    "time_s": _num(preview.get("time_s", 0.0)),
+                    "distance_m": _num(preview.get("distance_m", 0.0)),
+                    "line_count": _num(preview.get("line_count", 0.0)),
+                }
+            except Exception:
+                result[entry["key"]] = {
+                    "time_s": 0.0,
+                    "distance_m": 0.0,
+                    "line_count": 0.0,
+                }
+        return result
+
+    def _build_day_plan(
+        self,
+        entries,
+        start_area_key: str | None = None,
+        start_home_lonlat=None,
+        start_home_label: str | None = None,
+    ):
         active_entries = [
             entry for entry in entries if entry["key"] not in self.excluded_area_keys
         ]
@@ -2263,16 +2433,51 @@ class MainWindow(QtWidgets.QMainWindow):
             for entry in active_entries
         ]
         durations, distances, matrix_source = self._build_drive_matrix(points_lonlat)
-        order = self._optimize_visit_order(durations)
+        index_by_key = {entry["key"]: idx for idx, entry in enumerate(active_entries)}
+        fixed_start = (
+            index_by_key.get(start_area_key) if start_area_key in index_by_key else None
+        )
+        order = self._optimize_visit_order(durations, fixed_start=fixed_start)
 
         ordered_entries = [active_entries[idx] for idx in order]
         sequence_by_key = {
             entry["key"]: idx + 1 for idx, entry in enumerate(ordered_entries)
         }
 
+        flight_by_key = self._estimate_flight_times(active_entries)
+        total_flight_time_s = sum(
+            float(flight_by_key.get(entry["key"], {}).get("time_s", 0.0))
+            for entry in ordered_entries
+        )
+        total_flight_distance_m = sum(
+            float(flight_by_key.get(entry["key"], {}).get("distance_m", 0.0))
+            for entry in ordered_entries
+        )
+
         segments = []
         total_distance_m = 0.0
         total_duration_s = 0.0
+
+        home_start_segment = None
+        if start_home_lonlat is not None and ordered_entries:
+            first = ordered_entries[0]
+            first_pt = (float(first["center"][1]), float(first["center"][0]))
+            home_start_segment = self._segment_route(start_home_lonlat, first_pt)
+            total_distance_m += float(home_start_segment["distance_m"])
+            total_duration_s += float(home_start_segment["duration_s"])
+            segments.append(
+                {
+                    "from_key": "__home__",
+                    "to_key": first["key"],
+                    "from_label": str(start_home_label or "Wohnort"),
+                    "to_label": first["label"],
+                    "duration_s": float(home_start_segment["duration_s"]),
+                    "distance_m": float(home_start_segment["distance_m"]),
+                    "line": home_start_segment["line"],
+                    "source": home_start_segment["source"],
+                }
+            )
+
         for idx in range(len(order) - 1):
             src = ordered_entries[idx]
             dst = ordered_entries[idx + 1]
@@ -2302,8 +2507,29 @@ class MainWindow(QtWidgets.QMainWindow):
             "segments": segments,
             "total_distance_m": total_distance_m,
             "total_duration_s": total_duration_s,
+            "total_flight_time_s": float(total_flight_time_s),
+            "total_flight_distance_m": float(total_flight_distance_m),
+            "flight_by_key": flight_by_key,
+            "start_area_key": (
+                start_area_key if start_area_key in index_by_key else None
+            ),
+            "start_home_label": (
+                str(start_home_label or "") if start_home_lonlat else ""
+            ),
+            "start_home_lonlat": (
+                [float(start_home_lonlat[0]), float(start_home_lonlat[1])]
+                if start_home_lonlat
+                else None
+            ),
             "matrix_distance_hint_m": float(self._path_cost(order, distances)),
         }
+
+    def set_start_area(self, area_key: str):
+        area_key = str(area_key or "").strip()
+        if not area_key:
+            return
+        self.selected_start_area_key = area_key
+        self.logln(f"Startfläche gesetzt: {area_key}")
 
     def toggle_area_exclusion(self, area_key: str):
         if area_key in self.excluded_area_keys:
@@ -2311,6 +2537,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.logln(f"Fläche wieder aktiviert: {area_key}")
         else:
             self.excluded_area_keys.add(area_key)
+            if self.selected_start_area_key == area_key:
+                self.selected_start_area_key = None
             self.logln(f"Fläche ausgeschlossen: {area_key}")
 
     def _color_for_applicant(self, applicant: str) -> str:
@@ -2342,6 +2570,7 @@ class MainWindow(QtWidgets.QMainWindow):
         mapping_line_items=None,
         flight_stats=None,
         day_plan=None,
+        selected_start_area_key: str | None = None,
         default_center=None,
         default_zoom: int = 11,
     ):
@@ -2360,6 +2589,22 @@ class MainWindow(QtWidgets.QMainWindow):
             self.strings.get("map_readd_area", "Fläche wieder aufnehmen"),
             ensure_ascii=False,
         )
+        start_label = json.dumps(
+            self.strings.get("map_set_start_area", "Als Startfläche festlegen"),
+            ensure_ascii=False,
+        )
+        start_selected_label = json.dumps(
+            self.strings.get("map_start_area_selected", "Startfläche ausgewählt"),
+            ensure_ascii=False,
+        )
+        start_replace_label = json.dumps(
+            self.strings.get(
+                "map_set_new_start_area",
+                "Diese Fläche als neuen Startpunkt festlegen",
+            ),
+            ensure_ascii=False,
+        )
+        start_key_json = json.dumps(selected_start_area_key, ensure_ascii=False)
         opt_disabled_json = json.dumps(
             self.strings.get("map_opt_disabled", "Winkeloptimierung ist deaktiviert."),
             ensure_ascii=False,
@@ -2483,6 +2728,10 @@ class MainWindow(QtWidgets.QMainWindow):
         const defaultZoom = {int(default_zoom)};
         const removeLabel = {remove_label};
         const addLabel = {add_label};
+        const setStartLabel = {start_label};
+        const selectedStartLabel = {start_selected_label};
+        const setNewStartLabel = {start_replace_label};
+        let selectedStartKey = {start_key_json};
         const optDisabledText = {opt_disabled_json};
         const statsActiveText = {stats_active_json};
         const statsDistanceText = {stats_distance_json};
@@ -2641,6 +2890,12 @@ class MainWindow(QtWidgets.QMainWindow):
                 const isExcluded = excluded.has(feature.key);
                 const actionLabel = isExcluded ? addLabel : removeLabel;
                 const actionColor = isExcluded ? '#2e7d32' : '#b71c1c';
+                const isStart = selectedStartKey && selectedStartKey === feature.key;
+                const hasOtherStart = !!selectedStartKey && !isStart;
+                const startButtonLabel = isStart
+                    ? selectedStartLabel
+                    : (hasOtherStart ? setNewStartLabel : setStartLabel);
+                const startButtonColor = isStart ? '#455a64' : '#1565c0';
                 return `
                     <b>${{escapeHtml(feature.label)}}</b><br>
                     ${{escapeHtml(feature.applicant)}}<br><br>
@@ -2651,6 +2906,14 @@ class MainWindow(QtWidgets.QMainWindow):
                         style="padding:6px 10px;border:1px solid #555;border-radius:4px;cursor:pointer;color:white;background:${{actionColor}};"
                     >
                         ${{escapeHtml(actionLabel)}}
+                    </button>
+                    <button
+                        type="button"
+                        class="set-start-btn"
+                        data-key="${{encodeURIComponent(feature.key)}}"
+                        style="margin-left:8px;padding:6px 10px;border:1px solid #555;border-radius:4px;cursor:pointer;color:white;background:${{startButtonColor}};"
+                    >
+                        ${{escapeHtml(startButtonLabel)}}
                     </button>
                 `;
             }}
@@ -2714,6 +2977,22 @@ class MainWindow(QtWidgets.QMainWindow):
                 }}
             }};
 
+            window.setStartArea = function(encodedKey) {{
+                const key = decodeURIComponent(encodedKey);
+                if (!featureByKey.has(key)) return;
+                selectedStartKey = key;
+
+                for (const [k, lyr] of layersByKey.entries()) {{
+                    const feat = featureByKey.get(k);
+                    if (!feat) continue;
+                    lyr.setPopupContent(popupHtml(feat));
+                }}
+
+                if (bridge && typeof bridge.setStartArea === 'function') {{
+                    bridge.setStartArea(key);
+                }}
+            }};
+
             const map = L.map('map', {{ zoomControl: true }});
             L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}', {{
                 attribution: 'Tiles © Esri'
@@ -2753,12 +3032,17 @@ class MainWindow(QtWidgets.QMainWindow):
                         return;
                     }}
                     const btn = root.querySelector('.toggle-area-btn');
-                    if (!btn) {{
-                        return;
+                    if (btn) {{
+                        btn.onclick = function() {{
+                            window.toggleArea(btn.dataset.key || '');
+                        }};
                     }}
-                    btn.onclick = function() {{
-                        window.toggleArea(btn.dataset.key || '');
-                    }};
+                    const startBtn = root.querySelector('.set-start-btn');
+                    if (startBtn) {{
+                        startBtn.onclick = function() {{
+                            window.setStartArea(startBtn.dataset.key || '');
+                        }};
+                    }}
                 }});
                 poly.addTo(group);
             }}
@@ -2822,6 +3106,9 @@ class MainWindow(QtWidgets.QMainWindow):
             mapping_line_items=payload.get("mapping_line_items", []),
             flight_stats=payload.get("flight_stats", {}),
             day_plan=payload.get("day_plan", {}),
+            selected_start_area_key=payload.get(
+                "selected_start_area_key", self.selected_start_area_key
+            ),
             default_center=payload.get("default_center", self.default_map_center),
             default_zoom=int(payload.get("default_zoom", self.default_map_zoom)),
         )
@@ -2843,6 +3130,7 @@ class MainWindow(QtWidgets.QMainWindow):
             "mapping_line_items": [],
             "flight_stats": {},
             "day_plan": {},
+            "selected_start_area_key": self.selected_start_area_key,
             "default_center": self.default_map_center,
             "default_zoom": self.default_map_zoom,
         }
@@ -2856,6 +3144,7 @@ class MainWindow(QtWidgets.QMainWindow):
             "mapping_line_items": [],
             "flight_stats": {},
             "day_plan": {},
+            "selected_start_area_key": self.selected_start_area_key,
             "default_center": self.default_map_center,
             "default_zoom": self.default_map_zoom,
         }
@@ -2958,6 +3247,8 @@ class MainWindow(QtWidgets.QMainWindow):
             entries = self._collect_geometry_entries(features, summaries)
             current_keys = {entry["key"] for entry in entries}
             self.excluded_area_keys.intersection_update(current_keys)
+            if self.selected_start_area_key not in current_keys:
+                self.selected_start_area_key = None
 
             map_items = [
                 {
@@ -3060,6 +3351,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 "mapping_line_items": mapping_line_items,
                 "flight_stats": flight_stats,
                 "day_plan": {},
+                "selected_start_area_key": self.selected_start_area_key,
                 "default_center": self.default_map_center,
                 "default_zoom": self.default_map_zoom,
             }
@@ -3094,11 +3386,21 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog.resize(700, 540)
 
         layout = QtWidgets.QVBoxLayout(dialog)
+        start_home = str(day_plan.get("start_home_label") or "").strip()
+        start_area_key = str(day_plan.get("start_area_key") or "").strip()
+        start_desc = "Automatisch"
+        if start_home:
+            start_desc = f"Wohnort: {start_home}"
+        elif start_area_key:
+            start_desc = "Startfläche aus Karte"
+
         header = QtWidgets.QLabel(
             f"<b>{self.strings.get('day_plan', 'Tagesplan')}</b><br>"
             f"Flächen: {len(day_plan.get('ordered_keys', []))}"
             f" · Strecke: {day_plan.get('total_distance_m', 0.0) / 1000.0:.2f} km"
             f" · Fahrzeit: {day_plan.get('total_duration_s', 0.0) / 60.0:.1f} min"
+            f" · Flugzeit: {day_plan.get('total_flight_time_s', 0.0) / 60.0:.1f} min"
+            f"<br>Start: {start_desc}"
         )
         header.setWordWrap(True)
         layout.addWidget(header)
@@ -3107,6 +3409,7 @@ class MainWindow(QtWidgets.QMainWindow):
         detail_box.setReadOnly(True)
 
         by_key = {entry["key"]: entry for entry in entries}
+        flight_by_key = day_plan.get("flight_by_key", {}) or {}
         lines = []
         for idx, key in enumerate(day_plan.get("ordered_keys", []), start=1):
             entry = by_key.get(key)
@@ -3122,6 +3425,58 @@ class MainWindow(QtWidgets.QMainWindow):
                 f" | {float(seg.get('distance_m', 0.0)) / 1000.0:.2f} km"
                 f" | {float(seg.get('duration_s', 0.0)) / 60.0:.1f} min"
             )
+
+        lines.append("")
+        lines.append("Zeitablauf (Fahrt + Flug):")
+        timeline_no = 1
+        ordered_keys = day_plan.get("ordered_keys", [])
+        segments = list(day_plan.get("segments", []) or [])
+        area_segments = [
+            seg
+            for seg in segments
+            if str(seg.get("to_key") or "") != ""
+            and str(seg.get("to_key") or "") != "__home__"
+        ]
+        seg_idx = 0
+
+        for pos, key in enumerate(ordered_keys, start=1):
+            if seg_idx < len(area_segments) and str(
+                area_segments[seg_idx].get("to_key")
+            ) == str(key):
+                seg = area_segments[seg_idx]
+                lines.append(
+                    f"{timeline_no}. Fahrt: {seg.get('from_label')} -> {seg.get('to_label')}"
+                    f" | {float(seg.get('duration_s', 0.0)) / 60.0:.1f} min"
+                )
+                timeline_no += 1
+                seg_idx += 1
+
+            entry = by_key.get(key)
+            if entry is None:
+                continue
+            f_time_s = float(flight_by_key.get(key, {}).get("time_s", 0.0))
+            f_dist_m = float(flight_by_key.get(key, {}).get("distance_m", 0.0))
+            lines.append(
+                f"{timeline_no}. Flug: {entry['label']}"
+                f" | {f_dist_m / 1000.0:.2f} km"
+                f" | {f_time_s / 60.0:.1f} min"
+            )
+            timeline_no += 1
+
+            if pos < len(ordered_keys):
+                next_key = ordered_keys[pos]
+                if (
+                    seg_idx < len(area_segments)
+                    and str(area_segments[seg_idx].get("from_key")) == str(key)
+                    and str(area_segments[seg_idx].get("to_key")) == str(next_key)
+                ):
+                    seg = area_segments[seg_idx]
+                    lines.append(
+                        f"{timeline_no}. Fahrt: {seg.get('from_label')} -> {seg.get('to_label')}"
+                        f" | {float(seg.get('duration_s', 0.0)) / 60.0:.1f} min"
+                    )
+                    timeline_no += 1
+                    seg_idx += 1
 
         source = str(day_plan.get("matrix_source", "geo")).upper()
         lines.append("")
@@ -3190,8 +3545,44 @@ class MainWindow(QtWidgets.QMainWindow):
             entries = self._collect_geometry_entries(features, summaries)
             current_keys = {entry["key"] for entry in entries}
             self.excluded_area_keys.intersection_update(current_keys)
+            if self.selected_start_area_key not in current_keys:
+                self.selected_start_area_key = None
 
-            day_plan = self._build_day_plan(entries)
+            start_area_key = self.selected_start_area_key
+            start_home_lonlat = None
+            start_home_label = None
+
+            if not start_area_key:
+                start_choice = self._ask_day_plan_start()
+                if start_choice.get("cancelled"):
+                    return
+
+                address = str(start_choice.get("address") or "").strip()
+                if not address:
+                    QtWidgets.QMessageBox.information(
+                        self,
+                        self.strings.get("day_plan", "Tagesplan"),
+                        "Bitte entweder eine Startfläche in der Karte auswählen oder einen Wohnort eingeben.",
+                    )
+                    return
+
+                try:
+                    start_home_lonlat, start_home_label = self._geocode_address(address)
+                    self.logln("Startpunkt (Wohnort) gesetzt: " f"{start_home_label}")
+                except Exception as ex:
+                    QtWidgets.QMessageBox.warning(
+                        self,
+                        self.strings.get("error", "Fehler"),
+                        f"Wohnort konnte nicht ermittelt werden:\n{ex}",
+                    )
+                    return
+
+            day_plan = self._build_day_plan(
+                entries,
+                start_area_key=start_area_key,
+                start_home_lonlat=start_home_lonlat,
+                start_home_label=start_home_label,
+            )
             if not day_plan or not day_plan.get("ordered_keys"):
                 QtWidgets.QMessageBox.information(
                     self,
@@ -3228,6 +3619,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 "mapping_line_items": [],
                 "flight_stats": {"optimization_active": False},
                 "day_plan": day_plan,
+                "selected_start_area_key": self.selected_start_area_key,
                 "default_center": self.default_map_center,
                 "default_zoom": self.default_map_zoom,
             }
@@ -3241,7 +3633,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 "✓ Tagesplan: "
                 f"{len(day_plan.get('ordered_keys', []))} Flächen, "
                 f"{day_plan.get('total_distance_m', 0.0) / 1000.0:.2f} km, "
-                f"{day_plan.get('total_duration_s', 0.0) / 60.0:.1f} min"
+                f"{day_plan.get('total_duration_s', 0.0) / 60.0:.1f} min Fahrt, "
+                f"{day_plan.get('total_flight_time_s', 0.0) / 60.0:.1f} min Flug"
             )
             self.status.showMessage("Tagesplan erstellt")
             self._show_day_plan_window(entries, day_plan)
@@ -3477,16 +3870,34 @@ class MainWindow(QtWidgets.QMainWindow):
 
             self.logln("─" * 60)
             self.logln(f"✓ {written} KMZ-Dateien generiert")
+
+            combined_kmz_file = None
+            if len(norm) > 1:
+                combined_candidates = sorted(
+                    out_dir.glob("*-alle.kmz"),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True,
+                )
+                if combined_candidates:
+                    combined_kmz_file = combined_candidates[0]
+                    self.logln(f"Zusätzliche Sammel-KMZ: {combined_kmz_file.name}")
+
             self.logln(f"Ausgabeordner: {out_dir}")
             self.logln(f"Debug-KMLs: {debug_kml_dir}")
             self.status.showMessage(self.strings["done"])
 
+            success_text = (
+                f"✓ Erfolgreich: {written} KMZ-Dateien\n\n"
+                f"Ausgabe:\n{out_dir}\n\n"
+                f"Debug-KMLs:\n{debug_kml_dir}"
+            )
+            if combined_kmz_file is not None:
+                success_text += f"\n\nZusätzliche Sammel-KMZ:\n{combined_kmz_file.name}"
+
             QtWidgets.QMessageBox.information(
                 self,
                 self.strings["success"],
-                f"✓ Erfolgreich: {written} KMZ-Dateien\n\n"
-                f"Ausgabe:\n{out_dir}\n\n"
-                f"Debug-KMLs:\n{debug_kml_dir}",
+                success_text,
             )
         except Exception as ex:
             tb = traceback.format_exc()
@@ -3554,6 +3965,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.kmz_edit.clear()
         self.out_edit.setText(str(Path.cwd() / "out"))
         self.excluded_area_keys.clear()
+        self.selected_start_area_key = None
 
         # Output
         self.output_label.clear()

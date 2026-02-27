@@ -184,6 +184,130 @@ def polygon_to_wpml_kml(polygon: Polygon, options: Optional[dict] = None) -> str
 """
 
 
+def polygons_to_wpml_kml(
+    polygons: Sequence[Polygon],
+    options: Optional[dict] = None,
+    directions: Optional[Sequence[int]] = None,
+) -> str:
+    poly_list = list(polygons)
+    if not poly_list:
+        raise ValueError("polygons must not be empty")
+
+    opts = options or {}
+    profile = _drone_profile(str(opts.get("drohne", "M4T")))
+
+    flughoehe = float(opts.get("flughöhe_m", 60))
+    sichere_starthoehe = float(opts.get("sichere_starthöhe_m", max(20, flughoehe)))
+    speed = float(opts.get("geschwindigkeit_ms", 8))
+    overlap_w = int(opts.get("seitlicher_überlapp_prozent", 30))
+    margin = int(opts.get("rand", 0))
+    elevation_optimize_enable = (
+        1 if bool(opts.get("elevation_optimize_enable", True)) else 0
+    )
+    finish_action = _map_finish_action(
+        str(opts.get("aktion_beenden", "Rückkehrfunktion"))
+    )
+
+    now_ms = int(time.time() * 1000)
+
+    wayline_avoid = ""
+    if profile["include_wayline_avoid"]:
+        wayline_avoid = (
+            "\n      <wpml:waylineAvoidLimitAreaMode>1</wpml:waylineAvoidLimitAreaMode>"
+        )
+
+    quick_ortho = ""
+    if profile["include_quick_ortho"]:
+        quick_ortho = (
+            "\n        <wpml:quickOrthoMappingEnable>0</wpml:quickOrthoMappingEnable>"
+        )
+
+    placemarks = []
+    for i, poly in enumerate(poly_list):
+        direction = int(opts.get("direction", 0))
+        if directions and i < len(directions):
+            direction = int(directions[i])
+        coords = _coordinates_text(poly)
+        placemarks.append(
+            f"""            <Placemark>
+                <wpml:caliFlightEnable>0</wpml:caliFlightEnable>
+                <wpml:elevationOptimizeEnable>{elevation_optimize_enable}</wpml:elevationOptimizeEnable>
+                <wpml:smartObliqueEnable>0</wpml:smartObliqueEnable>{quick_ortho}
+                <wpml:facadeWaylineEnable>0</wpml:facadeWaylineEnable>
+                <wpml:isLookAtSceneSet>0</wpml:isLookAtSceneSet>
+                <wpml:smartObliqueGimbalPitch>{profile["gimbal_pitch"]}</wpml:smartObliqueGimbalPitch>
+                <wpml:shootType>time</wpml:shootType>
+                <wpml:direction>{direction}</wpml:direction>
+                <wpml:margin>{margin}</wpml:margin>
+                <wpml:efficiencyFlightModeEnable>0</wpml:efficiencyFlightModeEnable>
+                <wpml:overlap>
+                    <wpml:orthoLidarOverlapH>80</wpml:orthoLidarOverlapH>
+                    <wpml:orthoLidarOverlapW>{overlap_w}</wpml:orthoLidarOverlapW>
+                    <wpml:orthoCameraOverlapH>80</wpml:orthoCameraOverlapH>
+                    <wpml:orthoCameraOverlapW>{overlap_w}</wpml:orthoCameraOverlapW>
+                </wpml:overlap>
+                <Polygon>
+                    <outerBoundaryIs>
+                        <LinearRing>
+                            <coordinates>
+                                {coords}
+                            </coordinates>
+                        </LinearRing>
+                    </outerBoundaryIs>
+                </Polygon>
+                <wpml:ellipsoidHeight>{_fmt_number(flughoehe)}</wpml:ellipsoidHeight>
+                <wpml:height>{_fmt_number(flughoehe)}</wpml:height>
+            </Placemark>"""
+        )
+
+    placemarks_xml = "\n".join(placemarks)
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:wpml="http://www.dji.com/wpmz/1.0.6">
+    <Document>
+        <wpml:createTime>{now_ms}</wpml:createTime>
+        <wpml:updateTime>{now_ms}</wpml:updateTime>
+        <wpml:missionConfig>
+            <wpml:flyToWaylineMode>safely</wpml:flyToWaylineMode>
+            <wpml:finishAction>{finish_action}</wpml:finishAction>
+            <wpml:exitOnRCLost>executeLostAction</wpml:exitOnRCLost>
+            <wpml:executeRCLostAction>goBack</wpml:executeRCLostAction>
+            <wpml:takeOffSecurityHeight>{_fmt_number(sichere_starthoehe)}</wpml:takeOffSecurityHeight>
+            <wpml:globalTransitionalSpeed>15</wpml:globalTransitionalSpeed>
+            <wpml:droneInfo>
+                <wpml:droneEnumValue>{profile["drone_enum"]}</wpml:droneEnumValue>
+                <wpml:droneSubEnumValue>0</wpml:droneSubEnumValue>
+            </wpml:droneInfo>{wayline_avoid}
+            <wpml:payloadInfo>
+                <wpml:payloadEnumValue>{profile["payload_enum"]}</wpml:payloadEnumValue>
+                <wpml:payloadSubEnumValue>2</wpml:payloadSubEnumValue>
+                <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex>
+            </wpml:payloadInfo>
+        </wpml:missionConfig>
+        <Folder>
+            <wpml:templateType>mapping2d</wpml:templateType>
+            <wpml:templateId>0</wpml:templateId>
+            <wpml:waylineCoordinateSysParam>
+                <wpml:coordinateMode>WGS84</wpml:coordinateMode>
+                <wpml:heightMode>relativeToStartPoint</wpml:heightMode>
+                <wpml:globalShootHeight>{_fmt_number(flughoehe)}</wpml:globalShootHeight>
+            </wpml:waylineCoordinateSysParam>
+            <wpml:autoFlightSpeed>{_fmt_number(speed)}</wpml:autoFlightSpeed>
+{placemarks_xml}
+            <wpml:payloadParam>
+                <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex>
+                <wpml:dewarpingEnable>0</wpml:dewarpingEnable>
+                <wpml:returnMode>singleReturnFirst</wpml:returnMode>
+                <wpml:samplingRate>240000</wpml:samplingRate>
+                <wpml:scanningMode>nonRepetitive</wpml:scanningMode>
+                <wpml:modelColoringEnable>0</wpml:modelColoringEnable>
+                <wpml:imageFormat>ir</wpml:imageFormat>
+            </wpml:payloadParam>
+        </Folder>
+    </Document>
+</kml>
+"""
+
+
 def write_polygons_to_kmls(
     polys: Iterable[Polygon],
     out_dir: str,
@@ -259,5 +383,29 @@ def write_polygons_to_kmzs(
             zf.writestr("doc.kml", xml)
 
         count += 1
+
+    if len(poly_list) > 1:
+        combined_stem = _sanitize_filename(f"{base_name}-alle")
+        combined_xml = polygons_to_wpml_kml(
+            poly_list,
+            options=options,
+            directions=directions,
+        )
+
+        if debug_path is not None:
+            (debug_path / f"{combined_stem}.kml").write_text(
+                combined_xml,
+                encoding="utf-8",
+            )
+
+        combined_kmz_file = out_path / f"{combined_stem}.kmz"
+        with zipfile.ZipFile(
+            combined_kmz_file,
+            mode="w",
+            compression=zipfile.ZIP_DEFLATED,
+        ) as zf:
+            zf.writestr("wpmz/template.kml", combined_xml)
+            zf.writestr("wpmz/waylines.wpml", combined_xml)
+            zf.writestr("doc.kml", combined_xml)
 
     return count
