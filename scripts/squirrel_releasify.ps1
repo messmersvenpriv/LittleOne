@@ -140,9 +140,31 @@ if ($setupCandidates.Count -gt 0) {
 	$mailDir = Join-Path $releaseRoot "mail"
 	if (-not (Test-Path $mailDir)) { New-Item -ItemType Directory -Path $mailDir | Out-Null }
 	$mailSetup = Join-Path $mailDir "LittleOne-Setup.exe"
-	Copy-Item $setupCandidates[0] -Destination $mailSetup -Force
+	$mailSetupVersioned = Join-Path $mailDir ("LittleOne-Setup-{0}.exe" -f $appVersion)
+
+	if (Test-Path $mailSetup) {
+		Remove-Item $mailSetup -Force
+	}
+	if (Test-Path $mailSetupVersioned) {
+		Remove-Item $mailSetupVersioned -Force
+	}
+
+	Copy-Item $setupCandidates[0] -Destination $mailSetup
+	Copy-Item $setupCandidates[0] -Destination $mailSetupVersioned
+
+	$now = Get-Date
+	$itemCanonical = Get-Item $mailSetup
+	$itemVersioned = Get-Item $mailSetupVersioned
+	$itemCanonical.CreationTime = $now
+	$itemCanonical.LastWriteTime = $now
+	$itemVersioned.CreationTime = $now
+	$itemVersioned.LastWriteTime = $now
+
+	$hashCanonical = (Get-FileHash -Path $mailSetup -Algorithm SHA256).Hash
 	Write-Host "Fertig:"
 	Write-Host " - Installer für Versand: $mailSetup"
+	Write-Host " - Installer versioniert: $mailSetupVersioned"
+	Write-Host " - Versand-Setup SHA256: $hashCanonical"
 	Write-Host " - Update-Artefakte: $releaseDir (RELEASES + *.nupkg)"
 } else {
 	Write-Host "Squirrel lief durch, aber Setup.exe wurde nicht gefunden. Prüfe Squirrel-Output in: $releaseDir" -ForegroundColor Yellow
