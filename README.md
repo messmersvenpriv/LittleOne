@@ -234,6 +234,7 @@ LittleOne versucht zu korrigieren, aber bei sehr komplexen Gebieten kann eine ma
 
 ### Option A: Installer (Empfohlen für Teams + Updates)
 - **Download:** `LittleOne-Setup.exe` (kleine Versanddatei für Mail/Chat)
+- **Aktuelle Release-Version:** `v0.2.2` (März 2026)
 - **Installation:** Doppelklick, automatische Benutzer-Installation
 - **System:** Windows 10/11 64-Bit
 - **Admin-Rechte:** Nicht nötig
@@ -435,6 +436,7 @@ Bitte mitincludieren:
 
 | Version | Datum | Änderungen |
 |---------|-------|-----------|
+| 1.4 | März 2026 | Release `v0.2.2`, Korrektur der DJI-Kartierungslinien beim Import, Export vereinfacht (keine Debug-KMLs, keine Sammel-KMZ) |
 | 1.3 | Feb 2026 | Tagesplan-Button, Fahrreihenfolge-Optimierung, Fahrtrouten mit Zeitlabels, Tagesplan-Fenster |
 | 1.2 | Feb 2026 | Mehrsprachen-GUI, WPMZ-Support, Units-System |
 | 1.1 | Jan 2026 | Dark Mode, Fehler-Handling verbessert |
@@ -442,6 +444,6 @@ Bitte mitincludieren:
 
 ---
 
-**Letzte Aktualisierung:** Feb 2026  
+**Letzte Aktualisierung:** März 2026  
 **Entwicklung:** GitHub  
 **Support:** Issues & Discussions
