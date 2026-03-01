@@ -4919,7 +4919,6 @@ class MainWindow(QtWidgets.QMainWindow):
             QtCore.QCoreApplication.processEvents()
 
             out_dir.mkdir(parents=True, exist_ok=True)
-            debug_kml_dir = out_dir / "debug_kml"
 
             # Generate KMZs
             self.logln(self._txt("convert_writing").format(count=len(norm)))
@@ -4930,7 +4929,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 options=options,
                 names=names,
                 directions=directions,
-                debug_kml_dir=str(debug_kml_dir),
             )
 
             self.progress.setMaximum(100)
@@ -4939,34 +4937,13 @@ class MainWindow(QtWidgets.QMainWindow):
             self.logln("─" * 60)
             self.logln(self._txt("convert_generated").format(count=written))
 
-            combined_kmz_file = None
-            if len(norm) > 1:
-                combined_candidates = sorted(
-                    out_dir.glob("*-alle.kmz"),
-                    key=lambda p: p.stat().st_mtime,
-                    reverse=True,
-                )
-                if combined_candidates:
-                    combined_kmz_file = combined_candidates[0]
-                    self.logln(
-                        self._txt("convert_combined").format(
-                            name=combined_kmz_file.name
-                        )
-                    )
-
             self.logln(self._txt("convert_output_folder").format(path=out_dir))
-            self.logln(self._txt("convert_debug_kml").format(path=debug_kml_dir))
             self.status.showMessage(self.strings["done"])
 
-            success_text = self._txt("convert_success_text").format(
-                count=written,
-                out_dir=out_dir,
-                debug_dir=debug_kml_dir,
+            success_text = (
+                f"✓ {self._txt('success', 'Success')}: {written} KMZ-Dateien\n\n"
+                f"{self._txt('output_folder', 'Output folder')}:\n{out_dir}"
             )
-            if combined_kmz_file is not None:
-                success_text += self._txt("convert_combined_suffix").format(
-                    name=combined_kmz_file.name
-                )
 
             QtWidgets.QMessageBox.information(
                 self,

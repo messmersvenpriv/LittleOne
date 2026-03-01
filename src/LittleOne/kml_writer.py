@@ -353,11 +353,6 @@ def write_polygons_to_kmzs(
     out_path = Path(out_dir)
     out_path.mkdir(parents=True, exist_ok=True)
 
-    debug_path: Optional[Path] = None
-    if debug_kml_dir:
-        debug_path = Path(debug_kml_dir)
-        debug_path.mkdir(parents=True, exist_ok=True)
-
     count = 0
     for i, poly in enumerate(poly_list, start=1):
         if names and i - 1 < len(names) and names[i - 1]:
@@ -371,9 +366,6 @@ def write_polygons_to_kmzs(
 
         xml = polygon_to_wpml_kml(poly, options=item_options)
 
-        if debug_path is not None:
-            (debug_path / f"{file_stem}.kml").write_text(xml, encoding="utf-8")
-
         kmz_file = out_path / f"{file_stem}.kmz"
         with zipfile.ZipFile(
             kmz_file, mode="w", compression=zipfile.ZIP_DEFLATED
@@ -382,28 +374,5 @@ def write_polygons_to_kmzs(
             zf.writestr("doc.kml", xml)
 
         count += 1
-
-    if len(poly_list) > 1:
-        combined_stem = _sanitize_filename(f"{base_name}-alle")
-        combined_xml = polygons_to_wpml_kml(
-            poly_list,
-            options=options,
-            directions=directions,
-        )
-
-        if debug_path is not None:
-            (debug_path / f"{combined_stem}.kml").write_text(
-                combined_xml,
-                encoding="utf-8",
-            )
-
-        combined_kmz_file = out_path / f"{combined_stem}.kmz"
-        with zipfile.ZipFile(
-            combined_kmz_file,
-            mode="w",
-            compression=zipfile.ZIP_DEFLATED,
-        ) as zf:
-            zf.writestr("wpmz/template.kml", combined_xml)
-            zf.writestr("doc.kml", combined_xml)
 
     return count
