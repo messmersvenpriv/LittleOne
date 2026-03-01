@@ -15,8 +15,10 @@ import sys, traceback
 import re
 import types
 import json
+import csv
 import hashlib
 import math
+from datetime import datetime
 import subprocess
 import webbrowser
 import urllib.request
@@ -124,6 +126,14 @@ LANGUAGES = {
         "map_panel_fallback": "Kartenpanel benötigt QtWebEngine. Browser-Fallback ist aktiv.",
         "map_remove_area": "Fläche entfernen",
         "map_readd_area": "Fläche wieder aufnehmen",
+        "map_set_start_area": "Als Startfläche festlegen",
+        "map_start_area_selected": "Startfläche ausgewählt",
+        "map_set_new_start_area": "Diese Fläche als neuen Startpunkt festlegen",
+        "map_browser_fallback_opened": "QtWebEngine nicht verfügbar – Karte im Standardbrowser geöffnet.",
+        "map_opened_gui_suffix": "GUI",
+        "map_start_set_log": "Startfläche gesetzt: {key}",
+        "map_area_reenabled_log": "Fläche wieder aktiviert: {key}",
+        "map_area_excluded_log": "Fläche ausgeschlossen: {key}",
         "map_controls_title": "Kartierungslinien",
         "map_controls_toggle": "Linien anzeigen",
         "map_opt_disabled": "Winkeloptimierung ist deaktiviert.",
@@ -148,6 +158,111 @@ LANGUAGES = {
         "theme": "Design",
         "language": "Sprache",
         "units": "Einheiten",
+        "save_defaults_action": "Aktuelle Werte als Standard speichern",
+        "save_defaults_status": "Standardeinstellungen gespeichert",
+        "save_defaults_ok": "Standardeinstellungen wurden gespeichert:",
+        "save_defaults_error": "Standardeinstellungen konnten nicht gespeichert werden:",
+        "update_check_action": "Nach Updates suchen",
+        "help_github": "GitHub Repository",
+        "help_easter": "G-Mode aktivieren",
+        "about_text": "Kitzrettung – DJI Drohnen-Missionsplaner v1.0\n\nEin professionelles Tool zur Erstellung von DJI-Missionen\naus KML/KMZ-Gebietsdaten.\n\nUnterstützte Drohnen: M4T, M3T, M2EA\n\n© 2024–2026 | Lizenz: MIT\n\nFür vollständige Dokumentation siehe Help → Dokumentation",
+        "doc_open_error": "Konnte Dokumentation nicht öffnen:",
+        "doc_not_found": "README.md nicht gefunden.\n\nBitte besuche das GitHub Repository für die vollständige Dokumentation:\nhttps://github.com/messmersvenpriv/LittleOne",
+        "github_open_error": "Konnte GitHub nicht öffnen:\n{error}\n\nBitte besuche manuell:\n{url}",
+        "offline_log": "ℹ Kein Internet erkannt – Konvertierung bleibt verfügbar.",
+        "action_end_route": "Routenmodus verlassen",
+        "action_end_rth": "Rückkehrfunktion",
+        "action_end_land": "Landen",
+        "action_end_first_wp": "Zur Startposition zurückkehren und schweben",
+        "update_checking": "Prüfe auf Updates ...",
+        "updates_title": "Updates",
+        "updates_up_to_date": "Du nutzt bereits die aktuelle Version ({version}).",
+        "update_none_status": "Keine Updates verfügbar",
+        "update_available_title": "Update verfügbar",
+        "update_available_msg": "Update verfügbar: {release_name}\nAktuell: {current}\nNeu: {latest}\n\n",
+        "update_prompt_install": "Jetzt Installer herunterladen und Update starten?\n(Bevorzugt wird Setup.exe aus dem Release)",
+        "update_prompt_open": "Download-Seite öffnen?",
+        "update_check_done": "Updateprüfung beendet",
+        "release_page_opened": "Release-Seite geöffnet",
+        "update_downloading": "Lade Update herunter ...",
+        "update_downloaded": "Update wurde geladen. Der Installer wird jetzt gestartet.\n\nBitte Rückfragen der Windows-Sicherheit bestätigen.",
+        "update_no_release": "Es wurde kein veröffentlichter GitHub-Release gefunden (HTTP 404).\nBitte veröffentliche einen Release (nicht nur Tag) oder prüfe die Repository-Sichtbarkeit.",
+        "update_no_release_status": "Kein veröffentlichter Release gefunden",
+        "update_error_title": "Updatefehler",
+        "update_error_http": "Konnte Update-Informationen nicht laden (HTTP {code}):\n{reason}",
+        "update_error_status": "Updateprüfung fehlgeschlagen",
+        "update_error_ssl_hint": "\n\nHinweis: In VPN/Proxy-Netzen kann SSL-Inspection aktiv sein. Bitte Firmen-Zertifikate prüfen oder kurz ohne VPN testen.",
+        "update_error_generic": "Fehler bei Updateprüfung:\n{error}",
+        "pick_output_dir": "Ausgabeordner wählen",
+        "map_error_log": "❌ Kartenfehler:",
+        "day_plan_start_info": "Bitte zuerst eine Startfläche in der Karte auswählen\noder hier den Startpunkt (Wohnort) eingeben.",
+        "day_plan_start_placeholder": "Startpunkt (Wohnort), z. B. Musterstraße 1, 76437 Rastatt",
+        "day_plan_start_hint": "Leer lassen, wenn Sie die Startfläche direkt in der Karte festlegen möchten.",
+        "day_plan_options_title_suffix": "Optionen",
+        "day_plan_options_info": "Bitte auswählen, was für den Tagesplan berechnet werden soll.",
+        "day_plan_opt_drive": "Fahrtzeiten und Wege berechnen",
+        "day_plan_opt_total": "Gesamtdauer berechnen (Flugzeit-Faktor + Kitzzeiten)",
+        "day_plan_options_hint": "Kitzdaten werden aus data/Locations/Rehkitz_Fundort.csv gelesen. Mehrere Einträge je Jahr innerhalb einer Fläche werden summiert.",
+        "day_plan_start_auto": "Automatisch",
+        "day_plan_start_home_prefix": "Wohnort",
+        "day_plan_start_area": "Startfläche aus Karte",
+        "day_plan_header_areas": "Flächen",
+        "day_plan_header_distance": "Strecke",
+        "day_plan_header_drive_time": "Fahrzeit",
+        "day_plan_header_flight_time": "Flugzeit",
+        "day_plan_header_total": "Tageseinsatz",
+        "day_plan_header_start": "Start",
+        "day_plan_segments": "Fahrtsegmente:",
+        "day_plan_timeline_drive": "Zeitablauf (Fahrt + Flug):",
+        "day_plan_timeline_flight": "Zeitablauf (Flug):",
+        "day_plan_step_drive": "Fahrt",
+        "day_plan_step_flight": "Flug",
+        "day_plan_area_processing": "Bearbeitungszeit je Fläche:",
+        "day_plan_label_factor": "Faktor",
+        "day_plan_label_flight_adjusted": "Flug bereinigt",
+        "day_plan_label_avg_kitz": "Ø Kitze",
+        "day_plan_label_kitz_time": "+Kitzzeit",
+        "day_plan_label_years": "Jahre",
+        "day_plan_total_work": "Tageseinsatz gesamt",
+        "day_plan_total_kitz": "davon Kitzzeiten",
+        "day_plan_routing_source": "Routing-Quelle",
+        "day_plan_routing_fallback": "Hinweis: Fallback mit Luftlinie + Durchschnittsgeschwindigkeit aktiv.",
+        "day_plan_calc_status": "Berechne Tagesplan ...",
+        "day_plan_calc_log": "Berechne Tagesplan ...",
+        "day_plan_need_start": "Bitte entweder eine Startfläche in der Karte auswählen oder einen Wohnort eingeben.",
+        "day_plan_home_set": "Startpunkt (Wohnort) gesetzt: {home}",
+        "day_plan_home_error": "Wohnort konnte nicht ermittelt werden:\n{error}",
+        "day_plan_csv_missing": "⚠ Kitz-CSV nicht gefunden: {path}",
+        "day_plan_csv_loaded": "Kitz-CSV geladen: {path} ({years} Jahre)",
+        "day_plan_no_active_areas": "Keine aktiven Flächen für Tagesplan vorhanden.",
+        "day_plan_created_log": "✓ Tagesplan: {areas} Flächen, {distance_km:.2f} km, {drive_min:.1f} min Fahrt, {flight_min:.1f} min Flug, {total_min:.1f} min Gesamt",
+        "day_plan_created_status": "Tagesplan erstellt",
+        "day_plan_error_log": "❌ Tagesplan-Fehler:",
+        "geocode_not_found": "Adresse nicht gefunden",
+        "convert_start_log": "Starte Konvertierung: {path}",
+        "convert_settings_log": "Einstellungen:",
+        "convert_parsing_log": "Parsing KMZ...",
+        "convert_features_loaded": "✓ {count} Features geladen",
+        "convert_extract_polygons": "Extrahiere Polygone...",
+        "convert_excluded": "ℹ {count} Fläche(n) ausgeschlossen und nicht konvertiert",
+        "convert_no_polygons_log": "❌ Keine Polygone gefunden.",
+        "convert_no_polygons_status": "Keine Polygone.",
+        "convert_polygons_extracted": "✓ {count} Polygone extrahiert",
+        "convert_estimate": "ℹ Schätzung optimierter Flugweg: {distance_m:.1f} m, {minutes:.1f} min",
+        "convert_normalizing": "Normalisiere Geometrien...",
+        "convert_normalized": "✓ Geometrien normalisiert",
+        "convert_writing": "Schreibe {count} KMZ-Dateien...",
+        "convert_generated": "✓ {count} KMZ-Dateien generiert",
+        "convert_combined": "Zusätzliche Sammel-KMZ: {name}",
+        "convert_output_folder": "Ausgabeordner: {path}",
+        "convert_debug_kml": "Debug-KMLs: {path}",
+        "convert_success_text": "✓ Erfolgreich: {count} KMZ-Dateien\n\nAusgabe:\n{out_dir}\n\nDebug-KMLs:\n{debug_dir}",
+        "convert_combined_suffix": "\n\nZusätzliche Sammel-KMZ:\n{name}",
+        "convert_error_log": "❌ FEHLER:",
+        "engine_unknown_import_error": "Unbekannter Importfehler",
+        "engine_import_log": "Engine-Importfehler: {error}",
+        "engine_load_failed": "LittleOne-Engine konnte nicht geladen werden.\n\nDetails: {details}\n\nBitte venv/Startpfad prüfen.",
+        "engine_unavailable": "LittleOne-Engine ist nicht verfügbar.",
         "ok": "OK",
         "cancel": "Abbrechen",
     },
@@ -208,6 +323,14 @@ LANGUAGES = {
         "map_panel_fallback": "Map panel needs QtWebEngine. Browser fallback is active.",
         "map_remove_area": "Remove area",
         "map_readd_area": "Include area again",
+        "map_set_start_area": "Set as start area",
+        "map_start_area_selected": "Start area selected",
+        "map_set_new_start_area": "Set this area as new start point",
+        "map_browser_fallback_opened": "QtWebEngine not available – map opened in default browser.",
+        "map_opened_gui_suffix": "GUI",
+        "map_start_set_log": "Start area set: {key}",
+        "map_area_reenabled_log": "Area re-enabled: {key}",
+        "map_area_excluded_log": "Area excluded: {key}",
         "map_controls_title": "Mapping lines",
         "map_controls_toggle": "Show lines",
         "map_opt_disabled": "Angle optimization is disabled.",
@@ -232,6 +355,111 @@ LANGUAGES = {
         "theme": "Theme",
         "language": "Language",
         "units": "Units",
+        "save_defaults_action": "Save current values as defaults",
+        "save_defaults_status": "Default settings saved",
+        "save_defaults_ok": "Default settings were saved:",
+        "save_defaults_error": "Default settings could not be saved:",
+        "update_check_action": "Check for updates",
+        "help_github": "GitHub repository",
+        "help_easter": "Enable G-Mode",
+        "about_text": "Kitzrettung – DJI Drone Mission Planner v1.0\n\nA professional tool for creating DJI missions\nfrom KML/KMZ area data.\n\nSupported drones: M4T, M3T, M2EA\n\n© 2024–2026 | License: MIT\n\nSee Help → Documentation for full documentation",
+        "doc_open_error": "Could not open documentation:",
+        "doc_not_found": "README.md not found.\n\nPlease visit the GitHub repository for full documentation:\nhttps://github.com/messmersvenpriv/LittleOne",
+        "github_open_error": "Could not open GitHub:\n{error}\n\nPlease open manually:\n{url}",
+        "offline_log": "ℹ No internet detected – conversion remains available.",
+        "action_end_route": "Exit route mode",
+        "action_end_rth": "Return to home",
+        "action_end_land": "Land",
+        "action_end_first_wp": "Return to start position and hover",
+        "update_checking": "Checking for updates ...",
+        "updates_title": "Updates",
+        "updates_up_to_date": "You are already using the latest version ({version}).",
+        "update_none_status": "No updates available",
+        "update_available_title": "Update available",
+        "update_available_msg": "Update available: {release_name}\nCurrent: {current}\nNew: {latest}\n\n",
+        "update_prompt_install": "Download installer now and start update?\n(Setup.exe from release is preferred)",
+        "update_prompt_open": "Open download page?",
+        "update_check_done": "Update check finished",
+        "release_page_opened": "Release page opened",
+        "update_downloading": "Downloading update ...",
+        "update_downloaded": "The update was downloaded. The installer will now start.\n\nPlease confirm Windows security prompts.",
+        "update_no_release": "No published GitHub release found (HTTP 404).\nPlease publish a release (not only a tag) or check repository visibility.",
+        "update_no_release_status": "No published release found",
+        "update_error_title": "Update error",
+        "update_error_http": "Could not load update information (HTTP {code}):\n{reason}",
+        "update_error_status": "Update check failed",
+        "update_error_ssl_hint": "\n\nHint: SSL inspection may be active in VPN/proxy networks. Please check corporate certificates or test briefly without VPN.",
+        "update_error_generic": "Error during update check:\n{error}",
+        "pick_output_dir": "Select output folder",
+        "map_error_log": "❌ Map error:",
+        "day_plan_start_info": "Please first select a start area on the map\nor enter the start point (home address) here.",
+        "day_plan_start_placeholder": "Start point (home address), e.g. Sample Street 1, 76437 Rastatt",
+        "day_plan_start_hint": "Leave empty if you want to set the start area directly on the map.",
+        "day_plan_options_title_suffix": "Options",
+        "day_plan_options_info": "Please choose what should be calculated for the day plan.",
+        "day_plan_opt_drive": "Calculate driving times and routes",
+        "day_plan_opt_total": "Calculate total duration (flight factor + fawn times)",
+        "day_plan_options_hint": "Fawn data is read from data/Locations/Rehkitz_Fundort.csv. Multiple entries per year inside one area are summed.",
+        "day_plan_start_auto": "Automatic",
+        "day_plan_start_home_prefix": "Home",
+        "day_plan_start_area": "Start area from map",
+        "day_plan_header_areas": "Areas",
+        "day_plan_header_distance": "Distance",
+        "day_plan_header_drive_time": "Drive time",
+        "day_plan_header_flight_time": "Flight time",
+        "day_plan_header_total": "Day mission",
+        "day_plan_header_start": "Start",
+        "day_plan_segments": "Drive segments:",
+        "day_plan_timeline_drive": "Timeline (Drive + Flight):",
+        "day_plan_timeline_flight": "Timeline (Flight):",
+        "day_plan_step_drive": "Drive",
+        "day_plan_step_flight": "Flight",
+        "day_plan_area_processing": "Processing time per area:",
+        "day_plan_label_factor": "Factor",
+        "day_plan_label_flight_adjusted": "Adjusted flight",
+        "day_plan_label_avg_kitz": "Avg fawns",
+        "day_plan_label_kitz_time": "+Fawn time",
+        "day_plan_label_years": "Years",
+        "day_plan_total_work": "Total day mission",
+        "day_plan_total_kitz": "of which fawn times",
+        "day_plan_routing_source": "Routing source",
+        "day_plan_routing_fallback": "Note: fallback with straight-line distance + average speed is active.",
+        "day_plan_calc_status": "Calculating day plan ...",
+        "day_plan_calc_log": "Calculating day plan ...",
+        "day_plan_need_start": "Please either select a start area on the map or enter a home address.",
+        "day_plan_home_set": "Start point (home) set: {home}",
+        "day_plan_home_error": "Could not resolve home address:\n{error}",
+        "day_plan_csv_missing": "⚠ Fawn CSV not found: {path}",
+        "day_plan_csv_loaded": "Fawn CSV loaded: {path} ({years} years)",
+        "day_plan_no_active_areas": "No active areas available for day plan.",
+        "day_plan_created_log": "✓ Day plan: {areas} areas, {distance_km:.2f} km, {drive_min:.1f} min drive, {flight_min:.1f} min flight, {total_min:.1f} min total",
+        "day_plan_created_status": "Day plan created",
+        "day_plan_error_log": "❌ Day plan error:",
+        "geocode_not_found": "Address not found",
+        "convert_start_log": "Starting conversion: {path}",
+        "convert_settings_log": "Settings:",
+        "convert_parsing_log": "Parsing KMZ...",
+        "convert_features_loaded": "✓ {count} features loaded",
+        "convert_extract_polygons": "Extracting polygons...",
+        "convert_excluded": "ℹ {count} area(s) excluded and not converted",
+        "convert_no_polygons_log": "❌ No polygons found.",
+        "convert_no_polygons_status": "No polygons.",
+        "convert_polygons_extracted": "✓ {count} polygons extracted",
+        "convert_estimate": "ℹ Estimated optimized flight path: {distance_m:.1f} m, {minutes:.1f} min",
+        "convert_normalizing": "Normalizing geometries...",
+        "convert_normalized": "✓ Geometries normalized",
+        "convert_writing": "Writing {count} KMZ files...",
+        "convert_generated": "✓ {count} KMZ files generated",
+        "convert_combined": "Additional combined KMZ: {name}",
+        "convert_output_folder": "Output folder: {path}",
+        "convert_debug_kml": "Debug KMLs: {path}",
+        "convert_success_text": "✓ Success: {count} KMZ files\n\nOutput:\n{out_dir}\n\nDebug KMLs:\n{debug_dir}",
+        "convert_combined_suffix": "\n\nAdditional combined KMZ:\n{name}",
+        "convert_error_log": "❌ ERROR:",
+        "engine_unknown_import_error": "Unknown import error",
+        "engine_import_log": "Engine import error: {error}",
+        "engine_load_failed": "LittleOne engine could not be loaded.\n\nDetails: {details}\n\nPlease check venv/start path.",
+        "engine_unavailable": "LittleOne engine is not available.",
         "ok": "OK",
         "cancel": "Cancel",
     },
@@ -443,6 +671,16 @@ BASE_DEFAULTS = {
     "altitude": 60.0,
     "safe_height": 60.0,
     "speed": 8.0,
+}
+
+FORM_DEFAULTS = {
+    "overlap": 30,
+    "margin": 0,
+    "drone": "M4T",
+    "action": "Rückkehrfunktion",
+    "optimize_direction": True,
+    "optimize_elevation": False,
+    "output_dir": "out",
 }
 
 
@@ -696,6 +934,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.theme = self._detect_system_theme()
         self.language = "Deutsch"
         self.units = "Metric"
+        self.user_defaults = {}
         self.strings = LANGUAGES[self.language]
 
         self.setWindowTitle(self.strings["title"])
@@ -864,15 +1103,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Aktion beenden
         self.action_combo = QtWidgets.QComboBox()
-        self.action_combo.addItems(
-            [
-                "Routenmodus verlassen",
-                "Rückkehrfunktion",
-                "Landen",
-                "Zur Startposition zurückkehren und schweben",
-            ]
-        )
-        self.action_combo.setCurrentText("Rückkehrfunktion")
+        self._populate_action_combo(FORM_DEFAULTS["action"])
         self.action_label = QtWidgets.QLabel(self.strings["action"] + ":")
         form.addRow(self.action_label, self.action_combo)
 
@@ -1053,11 +1284,239 @@ class MainWindow(QtWidgets.QMainWindow):
         self.status = self.statusBar()
         self.status.showMessage(self.strings["ready"])
 
+        self._load_user_defaults()
         self._apply_theme()
         self._write_default_map()
         self._update_map_panel_visibility()
         self._update_action_buttons_layout()
         QtCore.QTimer.singleShot(900, self._show_startup_connectivity_hint)
+
+    def _user_defaults_path(self) -> Path:
+        app_cfg = QtCore.QStandardPaths.writableLocation(
+            QtCore.QStandardPaths.StandardLocation.AppConfigLocation
+        )
+        if app_cfg:
+            cfg_dir = Path(app_cfg)
+        else:
+            cfg_dir = Path.home() / ".littleone"
+        cfg_dir.mkdir(parents=True, exist_ok=True)
+        return cfg_dir / "user_defaults.json"
+
+    def _clamp_int(self, value, lower: int, upper: int) -> int:
+        try:
+            number = int(round(float(value)))
+        except Exception:
+            number = lower
+        return max(lower, min(upper, number))
+
+    def _default_output_dir(self) -> str:
+        return str(Path.cwd() / "out")
+
+    def _txt(self, key: str, fallback: str = "") -> str:
+        value = self.strings.get(key)
+        if value is not None:
+            return str(value)
+        english = LANGUAGES.get("English", {})
+        if key in english:
+            return str(english.get(key))
+        return str(fallback)
+
+    def _end_action_items(self):
+        return [
+            (
+                "Routenmodus verlassen",
+                self._txt("action_end_route", "Routenmodus verlassen"),
+            ),
+            ("Rückkehrfunktion", self._txt("action_end_rth", "Rückkehrfunktion")),
+            ("Landen", self._txt("action_end_land", "Landen")),
+            (
+                "Zur Startposition zurückkehren und schweben",
+                self._txt(
+                    "action_end_first_wp",
+                    "Zur Startposition zurückkehren und schweben",
+                ),
+            ),
+        ]
+
+    def _populate_action_combo(self, preferred_canonical: str | None = None):
+        previous = preferred_canonical
+        if previous is None and hasattr(self, "action_combo"):
+            previous = str(self.action_combo.currentData() or "").strip() or None
+
+        self.action_combo.blockSignals(True)
+        self.action_combo.clear()
+        for canonical, label in self._end_action_items():
+            self.action_combo.addItem(label, canonical)
+
+        target = previous or FORM_DEFAULTS["action"]
+        idx = self.action_combo.findData(target)
+        if idx < 0:
+            idx = self.action_combo.findData(FORM_DEFAULTS["action"])
+        if idx < 0:
+            idx = 0
+        self.action_combo.setCurrentIndex(idx)
+        self.action_combo.blockSignals(False)
+
+    def _current_form_defaults(self) -> dict:
+        metric_values = self._get_metric_values()
+        return {
+            "altitude": float(metric_values.get("altitude", BASE_DEFAULTS["altitude"])),
+            "safe_height": float(
+                metric_values.get("safe_height", BASE_DEFAULTS["safe_height"])
+            ),
+            "speed": float(metric_values.get("speed", BASE_DEFAULTS["speed"])),
+            "overlap": int(self.overlap_spin.value()),
+            "margin": int(self.margin_spin.value()),
+            "drone": str(self.drone_combo.currentText()),
+            "action": str(
+                self.action_combo.currentData()
+                or self.action_combo.currentText()
+                or FORM_DEFAULTS["action"]
+            ),
+            "optimize_direction": bool(self.optimize_direction_check.isChecked()),
+            "optimize_elevation": bool(self.elevation_optimize_check.isChecked()),
+            "output_dir": str(self.out_edit.text()).strip()
+            or self._default_output_dir(),
+        }
+
+    def _apply_form_defaults(self, defaults: dict | None = None):
+        defaults = defaults or {}
+
+        metric_values = {
+            "altitude": float(defaults.get("altitude", BASE_DEFAULTS["altitude"])),
+            "safe_height": float(
+                defaults.get("safe_height", BASE_DEFAULTS["safe_height"])
+            ),
+            "speed": float(defaults.get("speed", BASE_DEFAULTS["speed"])),
+        }
+        self._set_display_values_from_metric(metric_values)
+
+        overlap = self._clamp_int(
+            defaults.get("overlap", FORM_DEFAULTS["overlap"]),
+            self.overlap_slider.minimum(),
+            self.overlap_slider.maximum(),
+        )
+        self.overlap_slider.blockSignals(True)
+        self.overlap_spin.blockSignals(True)
+        self.overlap_slider.setValue(overlap)
+        self.overlap_spin.setValue(overlap)
+        self.overlap_slider.blockSignals(False)
+        self.overlap_spin.blockSignals(False)
+
+        margin = self._clamp_int(
+            defaults.get("margin", FORM_DEFAULTS["margin"]),
+            self.margin_slider.minimum(),
+            self.margin_slider.maximum(),
+        )
+        self.margin_slider.blockSignals(True)
+        self.margin_spin.blockSignals(True)
+        self.margin_slider.setValue(margin)
+        self.margin_spin.setValue(margin)
+        self.margin_slider.blockSignals(False)
+        self.margin_spin.blockSignals(False)
+
+        drone = str(defaults.get("drone", FORM_DEFAULTS["drone"]))
+        drone_idx = self.drone_combo.findText(drone)
+        if drone_idx >= 0:
+            self.drone_combo.setCurrentIndex(drone_idx)
+
+        action = str(defaults.get("action", FORM_DEFAULTS["action"]))
+        action_idx = self.action_combo.findData(action)
+        if action_idx < 0:
+            action_idx = self.action_combo.findText(action)
+        if action_idx >= 0:
+            self.action_combo.setCurrentIndex(action_idx)
+
+        self.optimize_direction_check.setChecked(
+            bool(
+                defaults.get("optimize_direction", FORM_DEFAULTS["optimize_direction"])
+            )
+        )
+        self.elevation_optimize_check.setChecked(
+            bool(
+                defaults.get("optimize_elevation", FORM_DEFAULTS["optimize_elevation"])
+            )
+        )
+
+        out_dir = (
+            str(defaults.get("output_dir", "")).strip() or self._default_output_dir()
+        )
+        self.out_edit.setText(out_dir)
+
+        self.kmz_edit.clear()
+        self.excluded_area_keys.clear()
+        self.selected_start_area_key = None
+
+    def _load_user_defaults(self):
+        path = self._user_defaults_path()
+        data = {}
+        if path.exists():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if not isinstance(data, dict):
+                    data = {}
+            except Exception:
+                data = {}
+
+        theme = data.get("theme")
+        if isinstance(theme, str) and theme in THEMES:
+            self.theme = theme
+
+        language = data.get("language")
+        if isinstance(language, str) and language in LANGUAGES:
+            self.language = language
+            self.strings = LANGUAGES[self.language]
+
+        units = data.get("units")
+        if isinstance(units, str) and units in UNITS:
+            self.units = units
+
+        self._apply_unit_ranges()
+
+        form_defaults = (
+            data.get("defaults") if isinstance(data.get("defaults"), dict) else {}
+        )
+        self._apply_form_defaults(form_defaults)
+
+        merged_defaults = {**FORM_DEFAULTS, **BASE_DEFAULTS}
+        if isinstance(form_defaults, dict):
+            merged_defaults.update(form_defaults)
+
+        self.user_defaults = {
+            "theme": self.theme,
+            "language": self.language,
+            "units": self.units,
+            "defaults": merged_defaults,
+        }
+        self._update_ui_text()
+
+    def save_current_as_defaults(self):
+        path = self._user_defaults_path()
+        payload = {
+            "theme": self.theme,
+            "language": self.language,
+            "units": self.units,
+            "defaults": self._current_form_defaults(),
+        }
+
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            self.user_defaults = payload
+            self.status.showMessage(self._txt("save_defaults_status"), 4000)
+            QtWidgets.QMessageBox.information(
+                self,
+                self._txt("success", "Success"),
+                f"{self._txt('save_defaults_ok')}\n{path}",
+            )
+        except Exception as ex:
+            QtWidgets.QMessageBox.critical(
+                self,
+                self._txt("error", "Error"),
+                f"{self._txt('save_defaults_error')}\n{ex}",
+            )
 
     def _has_network_access(self) -> bool:
         check_urls = [
@@ -1089,7 +1548,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return
 
         self._startup_offline_hint_shown = True
-        self.logln("ℹ Kein Internet erkannt – Konvertierung bleibt verfügbar.")
+        self.logln(self._txt("offline_log"))
         QtWidgets.QMessageBox.information(
             self,
             self.strings.get("offline_notice_title", "Offline-Hinweis"),
@@ -1216,7 +1675,13 @@ class MainWindow(QtWidgets.QMainWindow):
             self.units_actions[unit_key] = action
 
         settings_menu.addSeparator()
-        update_action = settings_menu.addAction("Nach Updates suchen")
+        save_defaults_action = settings_menu.addAction(
+            self._txt("save_defaults_action")
+        )
+        save_defaults_action.triggered.connect(self.save_current_as_defaults)
+
+        settings_menu.addSeparator()
+        update_action = settings_menu.addAction(self._txt("update_check_action"))
         update_action.triggered.connect(self.check_for_updates)
 
         # Help menu
@@ -1230,7 +1695,7 @@ class MainWindow(QtWidgets.QMainWindow):
         doc_action.triggered.connect(self.open_documentation)
 
         # GitHub
-        github_action = help_menu.addAction("GitHub Repository")
+        github_action = help_menu.addAction(self._txt("help_github"))
         github_action.triggered.connect(self.open_github)
 
         # About
@@ -1239,7 +1704,7 @@ class MainWindow(QtWidgets.QMainWindow):
         about_action.triggered.connect(self.show_about)
 
         # Easter Egg
-        easter_action = help_menu.addAction("G-Mode aktivieren")
+        easter_action = help_menu.addAction(self._txt("help_easter"))
         easter_action.triggered.connect(self.open_easter_egg)
 
     def open_easter_egg(self):
@@ -1547,6 +2012,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _update_ui_text(self):
         """Update all UI text after language or units change"""
+        current_action = str(self.action_combo.currentData() or "").strip() or None
         self.setWindowTitle(self.strings["title"])
 
         # Get unit system
@@ -1570,6 +2036,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.action_label.setText(self.strings["action"] + ":")
         self.speed_label.setText(self.strings["speed"] + " (" + speed_unit + "):")
         self.margin_label.setText(self.strings["margin"] + ":")
+        self._populate_action_combo(current_action)
 
         # Update spinbox suffixes
         self.alt_spin.setSuffix(" " + alt_unit)
@@ -1637,12 +2104,7 @@ class MainWindow(QtWidgets.QMainWindow):
         QtWidgets.QMessageBox.information(
             self,
             self.strings["about"],
-            "Kitzrettung – DJI Drohnen-Missionsplaner v1.0\n\n"
-            "Ein professionelles Tool zur Erstellung von DJI-Missionen\n"
-            "aus KML/KMZ-Gebietsdaten.\n\n"
-            "Unterstützte Drohnen: M4T, M3T, M2EA\n\n"
-            "© 2024–2026 | Lizenz: MIT\n\n"
-            "Für vollständige Dokumentation siehe Help → Dokumentation",
+            self._txt("about_text"),
         )
 
     def open_documentation(self):
@@ -1659,15 +2121,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 QtWidgets.QMessageBox.warning(
                     self,
                     self.strings["error"],
-                    f"Konnte Dokumentation nicht öffnen:\n{str(e)}",
+                    f"{self._txt('doc_open_error')}\n{str(e)}",
                 )
         else:
             QtWidgets.QMessageBox.information(
                 self,
                 self.strings.get("documentation", "Dokumentation"),
-                "README.md nicht gefunden.\n\n"
-                "Bitte besuche das GitHub Repository für die vollständige Dokumentation:\n"
-                "https://github.com/messmersvenpriv/LittleOne",
+                self._txt("doc_not_found"),
             )
 
     def open_github(self):
@@ -1679,8 +2139,7 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.warning(
                 self,
                 self.strings["error"],
-                f"Konnte GitHub nicht öffnen:\n{str(e)}\n\n"
-                f"Bitte besuche manuell:\n{github_url}",
+                self._txt("github_open_error").format(error=str(e), url=github_url),
             )
 
     def _parse_version(self, text: str):
@@ -1835,7 +2294,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def check_for_updates(self):
         try:
-            self.status.showMessage("Prüfe auf Updates ...")
+            self.status.showMessage(self._txt("update_checking"))
             QtCore.QCoreApplication.processEvents()
 
             release = self._fetch_latest_release()
@@ -1846,10 +2305,10 @@ class MainWindow(QtWidgets.QMainWindow):
             if latest_ver <= current_ver:
                 QtWidgets.QMessageBox.information(
                     self,
-                    "Updates",
-                    f"Du nutzt bereits die aktuelle Version ({APP_VERSION}).",
+                    self._txt("updates_title"),
+                    self._txt("updates_up_to_date").format(version=APP_VERSION),
                 )
-                self.status.showMessage("Keine Updates verfügbar")
+                self.status.showMessage(self._txt("update_none_status"))
                 return
 
             release_name = release.get("name") or latest_tag or "Neue Version"
@@ -1858,48 +2317,45 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             asset = self._pick_windows_asset(release)
 
-            msg = (
-                f"Update verfügbar: {release_name}\n"
-                f"Aktuell: {APP_VERSION}\n"
-                f"Neu: {latest_tag or 'unbekannt'}\n\n"
+            msg = self._txt("update_available_msg").format(
+                release_name=release_name,
+                current=APP_VERSION,
+                latest=(latest_tag or "unknown"),
             )
 
             can_auto_install = bool(
                 asset and getattr(sys, "frozen", False) and sys.platform == "win32"
             )
             if can_auto_install:
-                msg += (
-                    "Jetzt Installer herunterladen und Update starten?\n"
-                    "(Bevorzugt wird Setup.exe aus dem Release)"
-                )
+                msg += self._txt("update_prompt_install")
             else:
-                msg += "Download-Seite öffnen?"
+                msg += self._txt("update_prompt_open")
 
             btn = QtWidgets.QMessageBox.question(
                 self,
-                "Update verfügbar",
+                self._txt("update_available_title"),
                 msg,
                 QtWidgets.QMessageBox.StandardButton.Yes
                 | QtWidgets.QMessageBox.StandardButton.No,
             )
             if btn != QtWidgets.QMessageBox.StandardButton.Yes:
-                self.status.showMessage("Updateprüfung beendet")
+                self.status.showMessage(self._txt("update_check_done"))
                 return
 
             if can_auto_install:
                 if asset is None:
                     webbrowser.open(release_page)
-                    self.status.showMessage("Release-Seite geöffnet")
+                    self.status.showMessage(self._txt("release_page_opened"))
                     return
                 url = asset.get("browser_download_url")
                 name = asset.get("name") or "LittleOne-Setup.exe"
                 if not url:
                     webbrowser.open(release_page)
-                    self.status.showMessage("Release-Seite geöffnet")
+                    self.status.showMessage(self._txt("release_page_opened"))
                     return
 
                 target = Path(tempfile.gettempdir()) / name
-                self.status.showMessage("Lade Update herunter ...")
+                self.status.showMessage(self._txt("update_downloading"))
                 QtCore.QCoreApplication.processEvents()
                 try:
                     urllib.request.urlretrieve(url, str(target))
@@ -1911,52 +2367,49 @@ class MainWindow(QtWidgets.QMainWindow):
 
                 QtWidgets.QMessageBox.information(
                     self,
-                    "Update",
-                    "Update wurde geladen. Der Installer wird jetzt gestartet."
-                    "\n\nBitte Rückfragen der Windows-Sicherheit bestätigen.",
+                    self._txt("update_available_title"),
+                    self._txt("update_downloaded"),
                 )
                 subprocess.Popen([str(target)])
                 QtWidgets.QApplication.quit()
                 return
 
             webbrowser.open(release_page)
-            self.status.showMessage("Release-Seite geöffnet")
+            self.status.showMessage(self._txt("release_page_opened"))
         except urllib.error.HTTPError as ex:
             if ex.code == 404:
                 QtWidgets.QMessageBox.information(
                     self,
-                    "Updates",
-                    "Es wurde kein veröffentlichter GitHub-Release gefunden (HTTP 404).\n"
-                    "Bitte veröffentliche einen Release (nicht nur Tag) oder prüfe die Repository-Sichtbarkeit.",
+                    self._txt("updates_title"),
+                    self._txt("update_no_release"),
                 )
-                self.status.showMessage("Kein veröffentlichter Release gefunden")
+                self.status.showMessage(self._txt("update_no_release_status"))
             else:
                 QtWidgets.QMessageBox.warning(
                     self,
-                    "Updatefehler",
-                    f"Konnte Update-Informationen nicht laden (HTTP {ex.code}):\n{ex.reason}",
+                    self._txt("update_error_title"),
+                    self._txt("update_error_http").format(
+                        code=ex.code, reason=ex.reason
+                    ),
                 )
-                self.status.showMessage("Updateprüfung fehlgeschlagen")
+                self.status.showMessage(self._txt("update_error_status"))
         except urllib.error.URLError as ex:
             extra = ""
             if self._is_ssl_cert_error(ex):
-                extra = (
-                    "\n\nHinweis: In VPN/Proxy-Netzen kann SSL-Inspection aktiv sein. "
-                    "Bitte Firmen-Zertifikate prüfen oder kurz ohne VPN testen."
-                )
+                extra = self._txt("update_error_ssl_hint")
             QtWidgets.QMessageBox.warning(
                 self,
-                "Updatefehler",
-                f"Konnte Update-Informationen nicht laden:\n{ex}{extra}",
+                self._txt("update_error_title"),
+                f"{self._txt('update_error_http').format(code='-', reason=ex)}{extra}",
             )
-            self.status.showMessage("Updateprüfung fehlgeschlagen")
+            self.status.showMessage(self._txt("update_error_status"))
         except Exception as ex:
             QtWidgets.QMessageBox.warning(
                 self,
-                "Updatefehler",
-                f"Fehler bei Updateprüfung:\n{ex}",
+                self._txt("update_error_title"),
+                self._txt("update_error_generic").format(error=ex),
             )
-            self.status.showMessage("Updateprüfung fehlgeschlagen")
+            self.status.showMessage(self._txt("update_error_status"))
 
     # --- Logik: sichere Starthöhe folgt der Flughöhe nach oben ---
     def _sync_safe_with_alt(self, alt_value: int):
@@ -1980,7 +2433,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def pick_out(self):
         dir_ = QtWidgets.QFileDialog.getExistingDirectory(
-            self, "Ausgabeordner wählen", str(Path.cwd())
+            self, self._txt("pick_output_dir", "Select output folder"), str(Path.cwd())
         )
         if dir_:
             self.out_edit.setText(dir_)
@@ -2333,7 +2786,7 @@ class MainWindow(QtWidgets.QMainWindow):
             payload = resp.read().decode("utf-8", errors="replace")
         data = json.loads(payload)
         if not isinstance(data, list) or not data:
-            raise ValueError("Adresse nicht gefunden")
+            raise ValueError(self._txt("geocode_not_found", "Address not found"))
 
         hit = data[0]
         lat = float(hit.get("lat"))
@@ -2347,22 +2800,15 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog.resize(560, 210)
 
         layout = QtWidgets.QVBoxLayout(dialog)
-        label = QtWidgets.QLabel(
-            "Bitte zuerst eine Startfläche in der Karte auswählen\n"
-            "oder hier den Startpunkt (Wohnort) eingeben."
-        )
+        label = QtWidgets.QLabel(self._txt("day_plan_start_info"))
         label.setWordWrap(True)
         layout.addWidget(label)
 
         edit = QtWidgets.QLineEdit()
-        edit.setPlaceholderText(
-            "Startpunkt (Wohnort), z. B. Musterstraße 1, 76437 Rastatt"
-        )
+        edit.setPlaceholderText(self._txt("day_plan_start_placeholder"))
         layout.addWidget(edit)
 
-        hint = QtWidgets.QLabel(
-            "Leer lassen, wenn Sie die Startfläche direkt in der Karte festlegen möchten."
-        )
+        hint = QtWidgets.QLabel(self._txt("day_plan_start_hint"))
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #666;")
         layout.addWidget(hint)
@@ -2379,6 +2825,301 @@ class MainWindow(QtWidgets.QMainWindow):
             return {"cancelled": True, "address": ""}
 
         return {"cancelled": False, "address": edit.text().strip()}
+
+    def _ask_day_plan_options(self):
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle(
+            self.strings.get("day_plan", "Tagesplan")
+            + " – "
+            + self._txt("day_plan_options_title_suffix", "Options")
+        )
+        dialog.resize(540, 280)
+
+        layout = QtWidgets.QVBoxLayout(dialog)
+        info = QtWidgets.QLabel(self._txt("day_plan_options_info"))
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        drive_check = QtWidgets.QCheckBox(self._txt("day_plan_opt_drive"))
+        drive_check.setChecked(True)
+        layout.addWidget(drive_check)
+
+        total_check = QtWidgets.QCheckBox(self._txt("day_plan_opt_total"))
+        total_check.setChecked(True)
+        layout.addWidget(total_check)
+
+        hint = QtWidgets.QLabel(self._txt("day_plan_options_hint"))
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #666;")
+        layout.addWidget(hint)
+
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Ok
+            | QtWidgets.QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec() != int(QtWidgets.QDialog.DialogCode.Accepted):
+            return {"cancelled": True}
+
+        return {
+            "cancelled": False,
+            "include_drive": bool(drive_check.isChecked()),
+            "include_total_duration": bool(total_check.isChecked()),
+            "include_kitz_time": True,
+        }
+
+    def _fundort_csv_path(self) -> Path:
+        return (
+            Path(__file__).resolve().parents[1]
+            / "data"
+            / "Locations"
+            / "Rehkitz_Fundort.csv"
+        )
+
+    def _parse_year_value(self, row: dict) -> int | None:
+        year_raw = str(row.get("Jahr") or "").strip()
+        if year_raw:
+            m = re.search(r"\d{4}", year_raw)
+            if m:
+                try:
+                    return int(m.group(0))
+                except Exception:
+                    pass
+
+        date_raw = str(row.get("Funddatum") or "").strip()
+        if not date_raw:
+            return None
+
+        formats = [
+            "%m/%d/%Y %I:%M:%S %p",
+            "%m/%d/%Y %I:%M %p",
+            "%m/%d/%Y",
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%d",
+            "%d.%m.%Y %H:%M:%S",
+            "%d.%m.%Y %H:%M",
+            "%d.%m.%Y",
+        ]
+        for fmt in formats:
+            try:
+                return int(datetime.strptime(date_raw, fmt).year)
+            except Exception:
+                continue
+
+        m = re.search(r"\b(20\d{2})\b", date_raw)
+        if m:
+            return int(m.group(1))
+        return None
+
+    def _to_float(self, value, default=0.0) -> float:
+        try:
+            return float(value)
+        except Exception:
+            return float(default)
+
+    def _to_int(self, value, default=0) -> int:
+        try:
+            return int(float(value))
+        except Exception:
+            return int(default)
+
+    def _polygon_area_ha(self, geom) -> float:
+        from shapely.geometry import Polygon, MultiPolygon
+
+        def ring_area_m2(coords, lat0_rad: float) -> float:
+            if not coords:
+                return 0.0
+            radius = 6371008.8
+            pts = []
+            for lon, lat in coords:
+                x = radius * math.radians(float(lon)) * math.cos(lat0_rad)
+                y = radius * math.radians(float(lat))
+                pts.append((x, y))
+            if pts[0] != pts[-1]:
+                pts.append(pts[0])
+
+            area2 = 0.0
+            for i in range(len(pts) - 1):
+                x1, y1 = pts[i]
+                x2, y2 = pts[i + 1]
+                area2 += (x1 * y2) - (x2 * y1)
+            return abs(area2) * 0.5
+
+        def poly_area_m2(poly: Polygon) -> float:
+            c = poly.centroid
+            lat0_rad = math.radians(float(c.y))
+            outer = ring_area_m2(list(poly.exterior.coords), lat0_rad)
+            holes = sum(
+                ring_area_m2(list(r.coords), lat0_rad) for r in list(poly.interiors)
+            )
+            return max(0.0, outer - holes)
+
+        if geom is None:
+            return 0.0
+        if isinstance(geom, Polygon):
+            return poly_area_m2(geom) / 10000.0
+        if isinstance(geom, MultiPolygon):
+            return sum(poly_area_m2(p) for p in geom.geoms) / 10000.0
+        return 0.0
+
+    def _work_time_factors_for_area(self, area_ha: float) -> tuple[float, float]:
+        area = float(area_ha)
+        if area < 1.0:
+            return 2.0, 5.0
+        if area < 5.0:
+            return 1.5, 7.0
+        return 1.2, 10.0
+
+    def _kitz_time_minutes_for_area(self, area_ha: float, avg_kitz: float) -> float:
+        avg = max(0.0, float(avg_kitz))
+        if avg <= 0.0:
+            return 0.0
+
+        _, first_kitz_min = self._work_time_factors_for_area(area_ha)
+        add_per_extra = 2.0 if float(area_ha) < 5.0 else 5.0
+        extra_kitz = max(0.0, avg - 1.0)
+        return float(first_kitz_min) + (extra_kitz * add_per_extra)
+
+    def _load_kitz_points(self, csv_path: Path):
+        points = []
+        years = set()
+
+        if not csv_path.exists():
+            return points, []
+
+        with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                lon = self._to_float(row.get("x"), default=float("nan"))
+                lat = self._to_float(row.get("y"), default=float("nan"))
+                if not (math.isfinite(lon) and math.isfinite(lat)):
+                    continue
+
+                year = self._parse_year_value(row)
+                if year is None:
+                    continue
+
+                count = self._to_int(row.get("Anzahl Kitze am Fundort"), default=0)
+                if count < 0:
+                    count = 0
+
+                points.append(
+                    {
+                        "lon": float(lon),
+                        "lat": float(lat),
+                        "year": int(year),
+                        "count": int(count),
+                    }
+                )
+                years.add(int(year))
+
+        return points, sorted(years)
+
+    def _kitz_stats_by_entry(self, entries, csv_path: Path):
+        from shapely.geometry import Point
+
+        points, years = self._load_kitz_points(csv_path)
+        out = {
+            "years": years,
+            "csv_path": str(csv_path),
+            "csv_exists": bool(csv_path.exists()),
+            "by_key": {},
+        }
+
+        for entry in entries:
+            key = str(entry.get("key"))
+            geom = entry.get("geom")
+            area_ha = self._polygon_area_ha(geom)
+            yearly = {int(y): 0 for y in years}
+            point_hits = 0
+
+            if geom is not None:
+                for item in points:
+                    pt = Point(float(item["lon"]), float(item["lat"]))
+                    if geom.covers(pt):
+                        y = int(item["year"])
+                        yearly[y] = int(yearly.get(y, 0)) + int(item["count"])
+                        point_hits += 1
+
+            positive_values = [v for v in yearly.values() if v > 0]
+            avg_kitz = (
+                float(sum(positive_values)) / float(len(positive_values))
+                if positive_values
+                else 0.0
+            )
+
+            out["by_key"][key] = {
+                "area_ha": float(area_ha),
+                "yearly": yearly,
+                "avg_kitz": float(avg_kitz),
+                "point_hits": int(point_hits),
+            }
+
+        return out
+
+    def _compute_area_time_estimates(
+        self,
+        entries,
+        flight_by_key: dict,
+        kitz_stats: dict | None,
+        include_kitz_time: bool,
+    ):
+        kitz_by_key = (kitz_stats or {}).get("by_key", {})
+        years = (kitz_stats or {}).get("years", [])
+
+        area_estimates = {}
+        total_adjusted_flight_time_s = 0.0
+        total_kitz_time_s = 0.0
+        total_area_time_s = 0.0
+
+        for entry in entries:
+            key = entry["key"]
+            f_time_s = float(flight_by_key.get(key, {}).get("time_s", 0.0))
+            kitz_row = kitz_by_key.get(key, {})
+            area_ha = float(
+                kitz_row.get("area_ha", self._polygon_area_ha(entry.get("geom")))
+            )
+            yearly = dict(kitz_row.get("yearly") or {})
+            avg_kitz = float(kitz_row.get("avg_kitz", 0.0))
+            points_in_poly = int(kitz_row.get("point_hits", 0))
+
+            multiplier, min_per_kitz = self._work_time_factors_for_area(area_ha)
+            adjusted_flight_s = f_time_s * float(multiplier)
+            add_per_extra_kitz = 2.0 if float(area_ha) < 5.0 else 5.0
+            kitz_minutes_total = self._kitz_time_minutes_for_area(area_ha, avg_kitz)
+            kitz_time_s = float(kitz_minutes_total) * 60.0 if include_kitz_time else 0.0
+            area_total_s = adjusted_flight_s + kitz_time_s
+
+            total_adjusted_flight_time_s += adjusted_flight_s
+            total_kitz_time_s += kitz_time_s
+            total_area_time_s += area_total_s
+
+            area_estimates[key] = {
+                "area_ha": float(area_ha),
+                "flight_multiplier": float(multiplier),
+                "kitz_minutes_per_item": float(min_per_kitz),
+                "kitz_extra_minutes_per_item": float(add_per_extra_kitz),
+                "kitz_minutes_total": float(kitz_minutes_total),
+                "yearly": yearly,
+                "years": [int(y) for y in years],
+                "avg_kitz": float(avg_kitz),
+                "points_in_polygon": int(points_in_poly),
+                "flight_time_s": float(f_time_s),
+                "adjusted_flight_time_s": float(adjusted_flight_s),
+                "kitz_time_s": float(kitz_time_s),
+                "area_total_time_s": float(area_total_s),
+            }
+
+        return {
+            "area_estimates_by_key": area_estimates,
+            "kitz_years": [int(y) for y in years],
+            "total_adjusted_flight_time_s": float(total_adjusted_flight_time_s),
+            "total_kitz_time_s": float(total_kitz_time_s),
+            "total_area_time_s": float(total_area_time_s),
+        }
 
     def _estimate_flight_times(self, active_entries):
         optimizer = optimize_angle_mod
@@ -2421,6 +3162,10 @@ class MainWindow(QtWidgets.QMainWindow):
         start_area_key: str | None = None,
         start_home_lonlat=None,
         start_home_label: str | None = None,
+        include_drive: bool = True,
+        include_total_duration: bool = True,
+        include_kitz_time: bool = True,
+        kitz_stats: dict | None = None,
     ):
         active_entries = [
             entry for entry in entries if entry["key"] not in self.excluded_area_keys
@@ -2428,16 +3173,29 @@ class MainWindow(QtWidgets.QMainWindow):
         if not active_entries:
             return None
 
-        points_lonlat = [
-            (float(entry["center"][1]), float(entry["center"][0]))
-            for entry in active_entries
-        ]
-        durations, distances, matrix_source = self._build_drive_matrix(points_lonlat)
+        matrix_source = "none"
+        distances = [[0.0 for _ in active_entries] for _ in active_entries]
         index_by_key = {entry["key"]: idx for idx, entry in enumerate(active_entries)}
-        fixed_start = (
-            index_by_key.get(start_area_key) if start_area_key in index_by_key else None
-        )
-        order = self._optimize_visit_order(durations, fixed_start=fixed_start)
+
+        if include_drive:
+            points_lonlat = [
+                (float(entry["center"][1]), float(entry["center"][0]))
+                for entry in active_entries
+            ]
+            durations, distances, matrix_source = self._build_drive_matrix(
+                points_lonlat
+            )
+            fixed_start = (
+                index_by_key.get(start_area_key)
+                if start_area_key in index_by_key
+                else None
+            )
+            order = self._optimize_visit_order(durations, fixed_start=fixed_start)
+        else:
+            order = list(range(len(active_entries)))
+            if start_area_key in index_by_key:
+                first_idx = index_by_key[start_area_key]
+                order = [first_idx] + [idx for idx in order if idx != first_idx]
 
         ordered_entries = [active_entries[idx] for idx in order]
         sequence_by_key = {
@@ -2459,7 +3217,7 @@ class MainWindow(QtWidgets.QMainWindow):
         total_duration_s = 0.0
 
         home_start_segment = None
-        if start_home_lonlat is not None and ordered_entries:
+        if include_drive and start_home_lonlat is not None and ordered_entries:
             first = ordered_entries[0]
             first_pt = (float(first["center"][1]), float(first["center"][0]))
             home_start_segment = self._segment_route(start_home_lonlat, first_pt)
@@ -2469,7 +3227,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 {
                     "from_key": "__home__",
                     "to_key": first["key"],
-                    "from_label": str(start_home_label or "Wohnort"),
+                    "from_label": str(
+                        start_home_label
+                        or self._txt("day_plan_start_home_prefix", "Home")
+                    ),
                     "to_label": first["label"],
                     "duration_s": float(home_start_segment["duration_s"]),
                     "distance_m": float(home_start_segment["distance_m"]),
@@ -2478,29 +3239,53 @@ class MainWindow(QtWidgets.QMainWindow):
                 }
             )
 
-        for idx in range(len(order) - 1):
-            src = ordered_entries[idx]
-            dst = ordered_entries[idx + 1]
-            src_pt = (float(src["center"][1]), float(src["center"][0]))
-            dst_pt = (float(dst["center"][1]), float(dst["center"][0]))
-            segment = self._segment_route(src_pt, dst_pt)
-            total_distance_m += float(segment["distance_m"])
-            total_duration_s += float(segment["duration_s"])
-            segments.append(
-                {
-                    "from_key": src["key"],
-                    "to_key": dst["key"],
-                    "from_label": src["label"],
-                    "to_label": dst["label"],
-                    "duration_s": float(segment["duration_s"]),
-                    "distance_m": float(segment["distance_m"]),
-                    "line": segment["line"],
-                    "source": segment["source"],
-                }
-            )
+        if include_drive:
+            for idx in range(len(order) - 1):
+                src = ordered_entries[idx]
+                dst = ordered_entries[idx + 1]
+                src_pt = (float(src["center"][1]), float(src["center"][0]))
+                dst_pt = (float(dst["center"][1]), float(dst["center"][0]))
+                segment = self._segment_route(src_pt, dst_pt)
+                total_distance_m += float(segment["distance_m"])
+                total_duration_s += float(segment["duration_s"])
+                segments.append(
+                    {
+                        "from_key": src["key"],
+                        "to_key": dst["key"],
+                        "from_label": src["label"],
+                        "to_label": dst["label"],
+                        "duration_s": float(segment["duration_s"]),
+                        "distance_m": float(segment["distance_m"]),
+                        "line": segment["line"],
+                        "source": segment["source"],
+                    }
+                )
+
+        area_payload = self._compute_area_time_estimates(
+            entries=ordered_entries,
+            flight_by_key=flight_by_key,
+            kitz_stats=kitz_stats,
+            include_kitz_time=include_kitz_time,
+        )
+        area_estimates = area_payload.get("area_estimates_by_key", {}) or {}
+        total_adjusted_flight_time_s = float(
+            area_payload.get("total_adjusted_flight_time_s", 0.0)
+        )
+        total_kitz_time_s = float(area_payload.get("total_kitz_time_s", 0.0))
+        total_area_time_s = float(area_payload.get("total_area_time_s", 0.0))
+        years = [int(y) for y in (area_payload.get("kitz_years") or [])]
+
+        total_work_time_s = total_area_time_s + (
+            total_duration_s if include_drive else 0.0
+        )
 
         return {
             "matrix_source": matrix_source,
+            "options": {
+                "include_drive": bool(include_drive),
+                "include_total_duration": bool(include_total_duration),
+                "include_kitz_time": bool(include_kitz_time),
+            },
             "sequence_by_key": sequence_by_key,
             "ordered_keys": [entry["key"] for entry in ordered_entries],
             "ordered_labels": [entry["label"] for entry in ordered_entries],
@@ -2508,8 +3293,14 @@ class MainWindow(QtWidgets.QMainWindow):
             "total_distance_m": total_distance_m,
             "total_duration_s": total_duration_s,
             "total_flight_time_s": float(total_flight_time_s),
+            "total_adjusted_flight_time_s": float(total_adjusted_flight_time_s),
+            "total_kitz_time_s": float(total_kitz_time_s),
+            "total_area_time_s": float(total_area_time_s),
+            "total_work_time_s": float(total_work_time_s),
             "total_flight_distance_m": float(total_flight_distance_m),
             "flight_by_key": flight_by_key,
+            "area_estimates_by_key": area_estimates,
+            "kitz_years": [int(y) for y in years],
             "start_area_key": (
                 start_area_key if start_area_key in index_by_key else None
             ),
@@ -2529,17 +3320,17 @@ class MainWindow(QtWidgets.QMainWindow):
         if not area_key:
             return
         self.selected_start_area_key = area_key
-        self.logln(f"Startfläche gesetzt: {area_key}")
+        self.logln(self._txt("map_start_set_log").format(key=area_key))
 
     def toggle_area_exclusion(self, area_key: str):
         if area_key in self.excluded_area_keys:
             self.excluded_area_keys.remove(area_key)
-            self.logln(f"Fläche wieder aktiviert: {area_key}")
+            self.logln(self._txt("map_area_reenabled_log").format(key=area_key))
         else:
             self.excluded_area_keys.add(area_key)
             if self.selected_start_area_key == area_key:
                 self.selected_start_area_key = None
-            self.logln(f"Fläche ausgeschlossen: {area_key}")
+            self.logln(self._txt("map_area_excluded_log").format(key=area_key))
 
     def _color_for_applicant(self, applicant: str) -> str:
         palette = [
@@ -2582,26 +3373,23 @@ class MainWindow(QtWidgets.QMainWindow):
         day_plan_json = json.dumps(day_plan or {}, ensure_ascii=False)
         title_json = json.dumps(title, ensure_ascii=False)
         remove_label = json.dumps(
-            self.strings.get("map_remove_area", "Fläche entfernen"),
+            self._txt("map_remove_area", "Remove area"),
             ensure_ascii=False,
         )
         add_label = json.dumps(
-            self.strings.get("map_readd_area", "Fläche wieder aufnehmen"),
+            self._txt("map_readd_area", "Include area again"),
             ensure_ascii=False,
         )
         start_label = json.dumps(
-            self.strings.get("map_set_start_area", "Als Startfläche festlegen"),
+            self._txt("map_set_start_area", "Set as start area"),
             ensure_ascii=False,
         )
         start_selected_label = json.dumps(
-            self.strings.get("map_start_area_selected", "Startfläche ausgewählt"),
+            self._txt("map_start_area_selected", "Start area selected"),
             ensure_ascii=False,
         )
         start_replace_label = json.dumps(
-            self.strings.get(
-                "map_set_new_start_area",
-                "Diese Fläche als neuen Startpunkt festlegen",
-            ),
+            self._txt("map_set_new_start_area", "Set this area as new start point"),
             ensure_ascii=False,
         )
         start_key_json = json.dumps(selected_start_area_key, ensure_ascii=False)
@@ -2896,9 +3684,54 @@ class MainWindow(QtWidgets.QMainWindow):
                     ? selectedStartLabel
                     : (hasOtherStart ? setNewStartLabel : setStartLabel);
                 const startButtonColor = isStart ? '#455a64' : '#1565c0';
+                let infoBlocks = [];
+                if (feature.kitz_show && feature.kitz_yearly && typeof feature.kitz_yearly === 'object') {{
+                    const years = Object.keys(feature.kitz_yearly)
+                        .map(x => Number(x))
+                        .filter(x => Number.isFinite(x))
+                        .sort((a, b) => a - b);
+                    const rows = [];
+                    for (const year of years) {{
+                        const val = Number(feature.kitz_yearly[String(year)] ?? feature.kitz_yearly[year] ?? 0);
+                        rows.push(String(year) + ': ' + String(Math.max(0, Math.round(val))) + ' Kitze');
+                    }}
+                    const avg = Number(feature.kitz_avg || 0);
+                    const areaHa = Number(feature.area_ha || 0);
+                    if (rows.length > 0) {{
+                        infoBlocks.push('<b>Kitzfunde im Polygon</b><br>' + rows.map(escapeHtml).join('<br>') +
+                            '<br>Ø Kitze: ' + escapeHtml(avg.toFixed(2)) +
+                            '<br>Fläche: ' + escapeHtml(areaHa.toFixed(2)) + ' ha');
+                    }}
+                }}
+
+                if (feature.time_show) {{
+                    const flightMin = Number(feature.flight_time_min || 0);
+                    const factor = Number(feature.flight_factor || 1);
+                    const adjFlightMin = Number(feature.adjusted_flight_min || 0);
+                    const kitzMin = Number(feature.kitz_time_min || 0);
+                    const kitzBaseMin = Number(feature.kitz_minutes_per_item || 0);
+                    const kitzExtraMin = Number(feature.kitz_extra_minutes_per_item || 0);
+                    const kitzTotalCalcMin = Number(feature.kitz_minutes_total || 0);
+                    const totalMin = Number(feature.processing_total_min || 0);
+                    const avgKitz = Number(feature.kitz_avg || 0);
+                    infoBlocks.push(
+                        '<b>Zeitabschätzung Fläche</b><br>' +
+                        'Flugzeit: ' + escapeHtml(flightMin.toFixed(1)) + ' min<br>' +
+                        'Faktor: ' + escapeHtml(factor.toFixed(1)) +
+                        ' → Flug bereinigt: ' + escapeHtml(adjFlightMin.toFixed(1)) + ' min<br>' +
+                        'Kitzzeit: 1. Kitz ' + escapeHtml(kitzBaseMin.toFixed(1)) + ' min' +
+                        ' + ab 2. Kitz ' + escapeHtml(kitzExtraMin.toFixed(1)) + ' min' +
+                        ' (Ø ' + escapeHtml(avgKitz.toFixed(2)) + ' Kitze)' +
+                        ' = ' + escapeHtml((kitzTotalCalcMin || kitzMin).toFixed(1)) + ' min<br>' +
+                        '<b>Bearbeitung gesamt: ' + escapeHtml(totalMin.toFixed(1)) + ' min</b>'
+                    );
+                }}
+
+                const extraInfo = infoBlocks.length > 0 ? '<br><br>' + infoBlocks.join('<br><br>') : '';
+
                 return `
                     <b>${{escapeHtml(feature.label)}}</b><br>
-                    ${{escapeHtml(feature.applicant)}}<br><br>
+                    ${{escapeHtml(feature.applicant)}}${{extraInfo}}<br><br>
                     <button
                         type="button"
                         class="toggle-area-btn"
@@ -3191,15 +4024,13 @@ class MainWindow(QtWidgets.QMainWindow):
             self.map_view.setUrl(QtCore.QUrl.fromLocalFile(resolved_path))
             if log_open:
                 self.logln(
-                    f"{self.strings.get('map_opened', 'Satellitenkarte geöffnet')}: GUI"
+                    f"{self.strings.get('map_opened', 'Satellitenkarte geöffnet')}: {self._txt('map_opened_gui_suffix', 'GUI')}"
                 )
             return
 
         if fallback_to_browser:
             webbrowser.open(html_path.resolve().as_uri())
-            self.logln(
-                "QtWebEngine nicht verfügbar – Karte im Standardbrowser geöffnet."
-            )
+            self.logln(self._txt("map_browser_fallback_opened"))
 
     def show_satellite_map(self):
         kmz_path = self._validate_input_path()
@@ -3211,15 +4042,13 @@ class MainWindow(QtWidgets.QMainWindow):
             err_text = (
                 f"{type(import_err).__name__}: {import_err}"
                 if import_err
-                else "Unbekannter Importfehler"
+                else self._txt("engine_unknown_import_error")
             )
-            self.logln(f"Engine-Importfehler: {err_text}")
+            self.logln(self._txt("engine_import_log").format(error=err_text))
             QtWidgets.QMessageBox.critical(
                 self,
                 self.strings["import_error"],
-                "LittleOne-Engine konnte nicht geladen werden.\n\n"
-                f"Details: {err_text}\n\n"
-                "Bitte venv/Startpfad prüfen.",
+                self._txt("engine_load_failed").format(details=err_text),
             )
             return
 
@@ -3228,7 +4057,7 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.critical(
                 self,
                 self.strings["import_error"],
-                "LittleOne-Engine ist nicht verfügbar.",
+                self._txt("engine_unavailable"),
             )
             return
 
@@ -3250,6 +4079,17 @@ class MainWindow(QtWidgets.QMainWindow):
             if self.selected_start_area_key not in current_keys:
                 self.selected_start_area_key = None
 
+            csv_path = self._fundort_csv_path()
+            kitz_stats = self._kitz_stats_by_entry(entries, csv_path)
+            flight_by_key = self._estimate_flight_times(entries)
+            area_payload = self._compute_area_time_estimates(
+                entries=entries,
+                flight_by_key=flight_by_key,
+                kitz_stats=kitz_stats,
+                include_kitz_time=True,
+            )
+            area_estimates_by_key = area_payload.get("area_estimates_by_key", {}) or {}
+
             map_items = [
                 {
                     "applicant": entry["applicant"],
@@ -3258,6 +4098,69 @@ class MainWindow(QtWidgets.QMainWindow):
                     "key": entry["key"],
                     "excluded": entry["key"] in self.excluded_area_keys,
                     "center": entry.get("center"),
+                    "kitz_show": True,
+                    "kitz_yearly": (
+                        area_estimates_by_key.get(entry["key"], {}).get("yearly", {})
+                    ),
+                    "kitz_avg": (
+                        area_estimates_by_key.get(entry["key"], {}).get("avg_kitz", 0.0)
+                    ),
+                    "area_ha": (
+                        area_estimates_by_key.get(entry["key"], {}).get("area_ha", 0.0)
+                    ),
+                    "time_show": True,
+                    "flight_time_min": (
+                        float(
+                            area_estimates_by_key.get(entry["key"], {}).get(
+                                "flight_time_s", 0.0
+                            )
+                        )
+                        / 60.0
+                    ),
+                    "flight_factor": (
+                        area_estimates_by_key.get(entry["key"], {}).get(
+                            "flight_multiplier", 1.0
+                        )
+                    ),
+                    "adjusted_flight_min": (
+                        float(
+                            area_estimates_by_key.get(entry["key"], {}).get(
+                                "adjusted_flight_time_s", 0.0
+                            )
+                        )
+                        / 60.0
+                    ),
+                    "kitz_minutes_per_item": (
+                        area_estimates_by_key.get(entry["key"], {}).get(
+                            "kitz_minutes_per_item", 0.0
+                        )
+                    ),
+                    "kitz_extra_minutes_per_item": (
+                        area_estimates_by_key.get(entry["key"], {}).get(
+                            "kitz_extra_minutes_per_item", 0.0
+                        )
+                    ),
+                    "kitz_minutes_total": (
+                        area_estimates_by_key.get(entry["key"], {}).get(
+                            "kitz_minutes_total", 0.0
+                        )
+                    ),
+                    "kitz_time_min": (
+                        float(
+                            area_estimates_by_key.get(entry["key"], {}).get(
+                                "kitz_time_s", 0.0
+                            )
+                        )
+                        / 60.0
+                    ),
+                    "processing_total_min": (
+                        float(
+                            area_estimates_by_key.get(entry["key"], {}).get(
+                                "area_total_time_s", 0.0
+                            )
+                        )
+                        / 60.0
+                    ),
                 }
                 for entry in entries
             ]
@@ -3369,7 +4272,7 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception as ex:
             tb = traceback.format_exc()
             self.logln("─" * 60)
-            self.logln("❌ Kartenfehler:")
+            self.logln(self._txt("map_error_log"))
             self.logln(tb)
             self.status.showMessage(self.strings["error"])
             QtWidgets.QMessageBox.critical(self, self.strings["error"], str(ex))
@@ -3388,19 +4291,39 @@ class MainWindow(QtWidgets.QMainWindow):
         layout = QtWidgets.QVBoxLayout(dialog)
         start_home = str(day_plan.get("start_home_label") or "").strip()
         start_area_key = str(day_plan.get("start_area_key") or "").strip()
-        start_desc = "Automatisch"
+        start_desc = self._txt("day_plan_start_auto", "Automatic")
         if start_home:
-            start_desc = f"Wohnort: {start_home}"
+            start_desc = (
+                f"{self._txt('day_plan_start_home_prefix', 'Home')}: {start_home}"
+            )
         elif start_area_key:
-            start_desc = "Startfläche aus Karte"
+            start_desc = self._txt("day_plan_start_area", "Start area from map")
+
+        opts = day_plan.get("options", {}) or {}
+        include_drive = bool(opts.get("include_drive", True))
+        include_kitz_time = bool(opts.get("include_kitz_time", True))
+
+        header_parts = [
+            f"{self._txt('day_plan_header_areas', 'Areas')}: {len(day_plan.get('ordered_keys', []))}",
+            f"{self._txt('day_plan_header_flight_time', 'Flight time')}: {day_plan.get('total_flight_time_s', 0.0) / 60.0:.1f} min",
+        ]
+        if include_drive:
+            header_parts.insert(
+                1,
+                f"{self._txt('day_plan_header_distance', 'Distance')}: {day_plan.get('total_distance_m', 0.0) / 1000.0:.2f} km",
+            )
+            header_parts.insert(
+                2,
+                f"{self._txt('day_plan_header_drive_time', 'Drive time')}: {day_plan.get('total_duration_s', 0.0) / 60.0:.1f} min",
+            )
+        header_parts.append(
+            f"{self._txt('day_plan_header_total', 'Day mission')}: {day_plan.get('total_work_time_s', 0.0) / 60.0:.1f} min"
+        )
 
         header = QtWidgets.QLabel(
             f"<b>{self.strings.get('day_plan', 'Tagesplan')}</b><br>"
-            f"Flächen: {len(day_plan.get('ordered_keys', []))}"
-            f" · Strecke: {day_plan.get('total_distance_m', 0.0) / 1000.0:.2f} km"
-            f" · Fahrzeit: {day_plan.get('total_duration_s', 0.0) / 60.0:.1f} min"
-            f" · Flugzeit: {day_plan.get('total_flight_time_s', 0.0) / 60.0:.1f} min"
-            f"<br>Start: {start_desc}"
+            f"{' · '.join(header_parts)}"
+            f"<br>{self._txt('day_plan_header_start', 'Start')}: {start_desc}"
         )
         header.setWordWrap(True)
         layout.addWidget(header)
@@ -3410,6 +4333,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         by_key = {entry["key"]: entry for entry in entries}
         flight_by_key = day_plan.get("flight_by_key", {}) or {}
+        area_estimates = day_plan.get("area_estimates_by_key", {}) or {}
         lines = []
         for idx, key in enumerate(day_plan.get("ordered_keys", []), start=1):
             entry = by_key.get(key)
@@ -3417,17 +4341,22 @@ class MainWindow(QtWidgets.QMainWindow):
                 continue
             lines.append(f"{idx}. {entry['label']} ({entry['applicant']})")
 
-        lines.append("")
-        lines.append("Fahrtsegmente:")
-        for idx, seg in enumerate(day_plan.get("segments", []), start=1):
-            lines.append(
-                f"{idx}. {seg.get('from_label')} -> {seg.get('to_label')}"
-                f" | {float(seg.get('distance_m', 0.0)) / 1000.0:.2f} km"
-                f" | {float(seg.get('duration_s', 0.0)) / 60.0:.1f} min"
-            )
+        if include_drive:
+            lines.append("")
+            lines.append(self._txt("day_plan_segments", "Drive segments:"))
+            for idx, seg in enumerate(day_plan.get("segments", []), start=1):
+                lines.append(
+                    f"{idx}. {seg.get('from_label')} -> {seg.get('to_label')}"
+                    f" | {float(seg.get('distance_m', 0.0)) / 1000.0:.2f} km"
+                    f" | {float(seg.get('duration_s', 0.0)) / 60.0:.1f} min"
+                )
 
         lines.append("")
-        lines.append("Zeitablauf (Fahrt + Flug):")
+        lines.append(
+            self._txt("day_plan_timeline_drive", "Timeline (Drive + Flight):")
+            if include_drive
+            else self._txt("day_plan_timeline_flight", "Timeline (Flight):")
+        )
         timeline_no = 1
         ordered_keys = day_plan.get("ordered_keys", [])
         segments = list(day_plan.get("segments", []) or [])
@@ -3440,12 +4369,14 @@ class MainWindow(QtWidgets.QMainWindow):
         seg_idx = 0
 
         for pos, key in enumerate(ordered_keys, start=1):
-            if seg_idx < len(area_segments) and str(
-                area_segments[seg_idx].get("to_key")
-            ) == str(key):
+            if (
+                include_drive
+                and seg_idx < len(area_segments)
+                and str(area_segments[seg_idx].get("to_key")) == str(key)
+            ):
                 seg = area_segments[seg_idx]
                 lines.append(
-                    f"{timeline_no}. Fahrt: {seg.get('from_label')} -> {seg.get('to_label')}"
+                    f"{timeline_no}. {self._txt('day_plan_step_drive', 'Drive')}: {seg.get('from_label')} -> {seg.get('to_label')}"
                     f" | {float(seg.get('duration_s', 0.0)) / 60.0:.1f} min"
                 )
                 timeline_no += 1
@@ -3457,13 +4388,13 @@ class MainWindow(QtWidgets.QMainWindow):
             f_time_s = float(flight_by_key.get(key, {}).get("time_s", 0.0))
             f_dist_m = float(flight_by_key.get(key, {}).get("distance_m", 0.0))
             lines.append(
-                f"{timeline_no}. Flug: {entry['label']}"
+                f"{timeline_no}. {self._txt('day_plan_step_flight', 'Flight')}: {entry['label']}"
                 f" | {f_dist_m / 1000.0:.2f} km"
                 f" | {f_time_s / 60.0:.1f} min"
             )
             timeline_no += 1
 
-            if pos < len(ordered_keys):
+            if include_drive and pos < len(ordered_keys):
                 next_key = ordered_keys[pos]
                 if (
                     seg_idx < len(area_segments)
@@ -3472,19 +4403,61 @@ class MainWindow(QtWidgets.QMainWindow):
                 ):
                     seg = area_segments[seg_idx]
                     lines.append(
-                        f"{timeline_no}. Fahrt: {seg.get('from_label')} -> {seg.get('to_label')}"
+                        f"{timeline_no}. {self._txt('day_plan_step_drive', 'Drive')}: {seg.get('from_label')} -> {seg.get('to_label')}"
                         f" | {float(seg.get('duration_s', 0.0)) / 60.0:.1f} min"
                     )
                     timeline_no += 1
                     seg_idx += 1
 
+        lines.append("")
+        lines.append(self._txt("day_plan_area_processing", "Processing time per area:"))
+        for idx, key in enumerate(ordered_keys, start=1):
+            entry = by_key.get(key)
+            estimate = area_estimates.get(key, {})
+            if entry is None or not estimate:
+                continue
+
+            base = (
+                f"{idx}. {entry['label']} | {float(estimate.get('area_ha', 0.0)):.2f} ha"
+                f" | {self._txt('day_plan_label_factor', 'Factor')} {float(estimate.get('flight_multiplier', 1.0)):.1f}"
+                f" | {self._txt('day_plan_label_flight_adjusted', 'Adjusted flight')} {float(estimate.get('adjusted_flight_time_s', 0.0)) / 60.0:.1f} min"
+            )
+
+            if include_kitz_time:
+                years = [int(y) for y in (estimate.get("years") or [])]
+                yearly = estimate.get("yearly") or {}
+                year_bits = [f"{y}: {int(yearly.get(y, 0))}" for y in years]
+                extra = (
+                    f" | {self._txt('day_plan_label_avg_kitz', 'Avg fawns')} {float(estimate.get('avg_kitz', 0.0)):.2f}"
+                    f" | {self._txt('day_plan_label_kitz_time', '+Fawn time')} {float(estimate.get('kitz_time_s', 0.0)) / 60.0:.1f} min"
+                )
+                if year_bits:
+                    extra += (
+                        " | "
+                        + self._txt("day_plan_label_years", "Years")
+                        + " "
+                        + ", ".join(year_bits)
+                    )
+                lines.append(base + extra)
+            else:
+                lines.append(base)
+
+        lines.append("")
+        lines.append(
+            f"{self._txt('day_plan_total_work', 'Total day mission')}: {float(day_plan.get('total_work_time_s', 0.0)) / 60.0:.1f} min"
+        )
+        if include_kitz_time:
+            lines.append(
+                f"  {self._txt('day_plan_total_kitz', 'of which fawn times')}: {float(day_plan.get('total_kitz_time_s', 0.0)) / 60.0:.1f} min"
+            )
+
         source = str(day_plan.get("matrix_source", "geo")).upper()
         lines.append("")
-        lines.append(f"Routing-Quelle: {source}")
-        if source != "OSRM":
-            lines.append(
-                "Hinweis: Fallback mit Luftlinie + Durchschnittsgeschwindigkeit aktiv."
-            )
+        lines.append(
+            f"{self._txt('day_plan_routing_source', 'Routing source')}: {source}"
+        )
+        if include_drive and source != "OSRM":
+            lines.append(self._txt("day_plan_routing_fallback"))
 
         detail_box.setPlainText("\n".join(lines))
         layout.addWidget(detail_box, 1)
@@ -3508,15 +4481,13 @@ class MainWindow(QtWidgets.QMainWindow):
             err_text = (
                 f"{type(import_err).__name__}: {import_err}"
                 if import_err
-                else "Unbekannter Importfehler"
+                else self._txt("engine_unknown_import_error")
             )
-            self.logln(f"Engine-Importfehler: {err_text}")
+            self.logln(self._txt("engine_import_log").format(error=err_text))
             QtWidgets.QMessageBox.critical(
                 self,
                 self.strings["import_error"],
-                "LittleOne-Engine konnte nicht geladen werden.\n\n"
-                f"Details: {err_text}\n\n"
-                "Bitte venv/Startpfad prüfen.",
+                self._txt("engine_load_failed").format(details=err_text),
             )
             return
 
@@ -3525,7 +4496,7 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.critical(
                 self,
                 self.strings["import_error"],
-                "LittleOne-Engine ist nicht verfügbar.",
+                self._txt("engine_unavailable"),
             )
             return
 
@@ -3536,8 +4507,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.day_plan_btn.setEnabled(False)
             self.map_btn.setEnabled(False)
             self.convert_btn.setEnabled(False)
-            self.status.showMessage("Berechne Tagesplan ...")
-            self.logln("Berechne Tagesplan ...")
+            self.status.showMessage(self._txt("day_plan_calc_status"))
+            self.logln(self._txt("day_plan_calc_log"))
             QtCore.QCoreApplication.processEvents()
 
             features = kmz.parse_kmz_to_area_features(str(kmz_path))
@@ -3551,6 +4522,9 @@ class MainWindow(QtWidgets.QMainWindow):
             start_area_key = self.selected_start_area_key
             start_home_lonlat = None
             start_home_label = None
+            plan_options = self._ask_day_plan_options()
+            if plan_options.get("cancelled"):
+                return
 
             if not start_area_key:
                 start_choice = self._ask_day_plan_start()
@@ -3562,32 +4536,55 @@ class MainWindow(QtWidgets.QMainWindow):
                     QtWidgets.QMessageBox.information(
                         self,
                         self.strings.get("day_plan", "Tagesplan"),
-                        "Bitte entweder eine Startfläche in der Karte auswählen oder einen Wohnort eingeben.",
+                        self._txt("day_plan_need_start"),
                     )
                     return
 
                 try:
                     start_home_lonlat, start_home_label = self._geocode_address(address)
-                    self.logln("Startpunkt (Wohnort) gesetzt: " f"{start_home_label}")
+                    self.logln(
+                        self._txt("day_plan_home_set").format(home=start_home_label)
+                    )
                 except Exception as ex:
                     QtWidgets.QMessageBox.warning(
                         self,
                         self.strings.get("error", "Fehler"),
-                        f"Wohnort konnte nicht ermittelt werden:\n{ex}",
+                        self._txt("day_plan_home_error").format(error=ex),
                     )
                     return
+
+            include_drive = bool(plan_options.get("include_drive", True))
+            include_total_duration = bool(
+                plan_options.get("include_total_duration", True)
+            )
+            include_kitz_time = bool(plan_options.get("include_kitz_time", True))
+
+            csv_path = self._fundort_csv_path()
+            kitz_stats = self._kitz_stats_by_entry(entries, csv_path)
+            if not kitz_stats.get("csv_exists"):
+                self.logln(self._txt("day_plan_csv_missing").format(path=csv_path))
+            else:
+                self.logln(
+                    self._txt("day_plan_csv_loaded").format(
+                        path=csv_path, years=len(kitz_stats.get("years", []))
+                    )
+                )
 
             day_plan = self._build_day_plan(
                 entries,
                 start_area_key=start_area_key,
                 start_home_lonlat=start_home_lonlat,
                 start_home_label=start_home_label,
+                include_drive=include_drive,
+                include_total_duration=include_total_duration,
+                include_kitz_time=include_kitz_time,
+                kitz_stats=kitz_stats,
             )
             if not day_plan or not day_plan.get("ordered_keys"):
                 QtWidgets.QMessageBox.information(
                     self,
                     self.strings.get("day_plan", "Tagesplan"),
-                    "Keine aktiven Flächen für Tagesplan vorhanden.",
+                    self._txt("day_plan_no_active_areas"),
                 )
                 return
 
@@ -3609,6 +4606,75 @@ class MainWindow(QtWidgets.QMainWindow):
                     "key": entry["key"],
                     "excluded": entry["key"] in self.excluded_area_keys,
                     "center": entry.get("center"),
+                    "kitz_show": bool(include_kitz_time),
+                    "kitz_yearly": (
+                        (day_plan.get("area_estimates_by_key", {}) or {})
+                        .get(entry["key"], {})
+                        .get("yearly", {})
+                    ),
+                    "kitz_avg": (
+                        (day_plan.get("area_estimates_by_key", {}) or {})
+                        .get(entry["key"], {})
+                        .get("avg_kitz", 0.0)
+                    ),
+                    "area_ha": (
+                        (day_plan.get("area_estimates_by_key", {}) or {})
+                        .get(entry["key"], {})
+                        .get("area_ha", 0.0)
+                    ),
+                    "time_show": True,
+                    "flight_time_min": (
+                        float(
+                            (day_plan.get("area_estimates_by_key", {}) or {})
+                            .get(entry["key"], {})
+                            .get("flight_time_s", 0.0)
+                        )
+                        / 60.0
+                    ),
+                    "flight_factor": (
+                        (day_plan.get("area_estimates_by_key", {}) or {})
+                        .get(entry["key"], {})
+                        .get("flight_multiplier", 1.0)
+                    ),
+                    "adjusted_flight_min": (
+                        float(
+                            (day_plan.get("area_estimates_by_key", {}) or {})
+                            .get(entry["key"], {})
+                            .get("adjusted_flight_time_s", 0.0)
+                        )
+                        / 60.0
+                    ),
+                    "kitz_minutes_per_item": (
+                        (day_plan.get("area_estimates_by_key", {}) or {})
+                        .get(entry["key"], {})
+                        .get("kitz_minutes_per_item", 0.0)
+                    ),
+                    "kitz_extra_minutes_per_item": (
+                        (day_plan.get("area_estimates_by_key", {}) or {})
+                        .get(entry["key"], {})
+                        .get("kitz_extra_minutes_per_item", 0.0)
+                    ),
+                    "kitz_minutes_total": (
+                        (day_plan.get("area_estimates_by_key", {}) or {})
+                        .get(entry["key"], {})
+                        .get("kitz_minutes_total", 0.0)
+                    ),
+                    "kitz_time_min": (
+                        float(
+                            (day_plan.get("area_estimates_by_key", {}) or {})
+                            .get(entry["key"], {})
+                            .get("kitz_time_s", 0.0)
+                        )
+                        / 60.0
+                    ),
+                    "processing_total_min": (
+                        float(
+                            (day_plan.get("area_estimates_by_key", {}) or {})
+                            .get(entry["key"], {})
+                            .get("area_total_time_s", 0.0)
+                        )
+                        / 60.0
+                    ),
                 }
                 for entry in entries
             ]
@@ -3630,18 +4696,20 @@ class MainWindow(QtWidgets.QMainWindow):
             )
 
             self.logln(
-                "✓ Tagesplan: "
-                f"{len(day_plan.get('ordered_keys', []))} Flächen, "
-                f"{day_plan.get('total_distance_m', 0.0) / 1000.0:.2f} km, "
-                f"{day_plan.get('total_duration_s', 0.0) / 60.0:.1f} min Fahrt, "
-                f"{day_plan.get('total_flight_time_s', 0.0) / 60.0:.1f} min Flug"
+                self._txt("day_plan_created_log").format(
+                    areas=len(day_plan.get("ordered_keys", [])),
+                    distance_km=day_plan.get("total_distance_m", 0.0) / 1000.0,
+                    drive_min=day_plan.get("total_duration_s", 0.0) / 60.0,
+                    flight_min=day_plan.get("total_flight_time_s", 0.0) / 60.0,
+                    total_min=day_plan.get("total_work_time_s", 0.0) / 60.0,
+                )
             )
-            self.status.showMessage("Tagesplan erstellt")
+            self.status.showMessage(self._txt("day_plan_created_status"))
             self._show_day_plan_window(entries, day_plan)
         except Exception as ex:
             tb = traceback.format_exc()
             self.logln("─" * 60)
-            self.logln("❌ Tagesplan-Fehler:")
+            self.logln(self._txt("day_plan_error_log"))
             self.logln(tb)
             self.status.showMessage(self.strings["error"])
             QtWidgets.QMessageBox.critical(self, self.strings["error"], str(ex))
@@ -3667,15 +4735,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 err_text = (
                     f"{type(import_err).__name__}: {import_err}"
                     if import_err
-                    else "Unbekannter Importfehler"
+                    else self._txt("engine_unknown_import_error")
                 )
-                self.logln(f"Engine-Importfehler: {err_text}")
+                self.logln(self._txt("engine_import_log").format(error=err_text))
                 QtWidgets.QMessageBox.critical(
                     self,
                     self.strings["import_error"],
-                    "LittleOne-Engine konnte nicht geladen werden.\n\n"
-                    f"Details: {err_text}\n\n"
-                    "Bitte venv/Startpfad prüfen.",
+                    self._txt("engine_load_failed").format(details=err_text),
                 )
                 return
 
@@ -3687,7 +4753,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 QtWidgets.QMessageBox.critical(
                     self,
                     self.strings["import_error"],
-                    "LittleOne-Engine ist nicht verfügbar.",
+                    self._txt("engine_unavailable"),
                 )
                 return
 
@@ -3698,7 +4764,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 "seitlicher_überlapp_prozent": self.overlap_spin.value(),
                 "sichere_starthöhe_m": float(metric_values["safe_height"]),
                 "drohne": self.drone_combo.currentText(),
-                "aktion_beenden": self.action_combo.currentText(),
+                "aktion_beenden": str(
+                    self.action_combo.currentData() or self.action_combo.currentText()
+                ),
                 "geschwindigkeit_ms": float(metric_values["speed"]),
                 "rand": self.margin_spin.value(),
                 "winkel_optimierung_aktiv": self.optimize_direction_check.isChecked(),
@@ -3714,9 +4782,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self.day_plan_btn.setEnabled(False)
 
             self.status.showMessage(self.strings["converting"])
-            self.logln(f"Starte Konvertierung: {kmz_path}")
+            self.logln(self._txt("convert_start_log").format(path=kmz_path))
             self.logln("─" * 60)
-            self.logln("Einstellungen:")
+            self.logln(self._txt("convert_settings_log"))
             for k, v in options.items():
                 self.logln(f"  • {k}: {v}")
             self.logln("─" * 60)
@@ -3725,9 +4793,9 @@ class MainWindow(QtWidgets.QMainWindow):
             QtCore.QCoreApplication.processEvents()
 
             # Parse & extract
-            self.logln("Parsing KMZ...")
+            self.logln(self._txt("convert_parsing_log"))
             features = kmz.parse_kmz_to_area_features(str(kmz_path))
-            self.logln(f"✓ {len(features)} Features geladen")
+            self.logln(self._txt("convert_features_loaded").format(count=len(features)))
             QtCore.QCoreApplication.processEvents()
 
             summaries = kmz.summarize_features(features)
@@ -3780,7 +4848,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 }
                 return f"{d.day:02d}{mon.get(d.month, 'Mon')}"
 
-            self.logln("Extrahiere Polygone...")
+            self.logln(self._txt("convert_extract_polygons"))
             skipped = 0
             for entry in entries:
                 if entry["key"] in self.excluded_area_keys:
@@ -3823,38 +4891,38 @@ class MainWindow(QtWidgets.QMainWindow):
                     directions.append(0)
 
             if skipped > 0:
-                self.logln(
-                    f"ℹ {skipped} Fläche(n) ausgeschlossen und nicht konvertiert"
-                )
+                self.logln(self._txt("convert_excluded").format(count=skipped))
 
             if not polys:
-                self.logln("❌ Keine Polygone gefunden.")
-                self.status.showMessage("Keine Polygone.")
+                self.logln(self._txt("convert_no_polygons_log"))
+                self.status.showMessage(self._txt("convert_no_polygons_status"))
                 self.progress.setVisible(False)
                 self.convert_btn.setEnabled(True)
                 self.day_plan_btn.setEnabled(True)
                 return
 
-            self.logln(f"✓ {len(polys)} Polygone extrahiert")
+            self.logln(self._txt("convert_polygons_extracted").format(count=len(polys)))
             if self.optimize_direction_check.isChecked() and est_total_distance_m > 0:
                 est_total_time_min = est_total_time_s / 60.0
                 self.logln(
-                    "ℹ Schätzung optimierter Flugweg: "
-                    f"{est_total_distance_m:.1f} m, {est_total_time_min:.1f} min"
+                    self._txt("convert_estimate").format(
+                        distance_m=est_total_distance_m,
+                        minutes=est_total_time_min,
+                    )
                 )
             QtCore.QCoreApplication.processEvents()
 
             # Normalize
-            self.logln("Normalisiere Geometrien...")
+            self.logln(self._txt("convert_normalizing"))
             norm = [rules.normalize_polygon(p, add_z_if_missing=True) for p in polys]
-            self.logln("✓ Geometrien normalisiert")
+            self.logln(self._txt("convert_normalized"))
             QtCore.QCoreApplication.processEvents()
 
             out_dir.mkdir(parents=True, exist_ok=True)
             debug_kml_dir = out_dir / "debug_kml"
 
             # Generate KMZs
-            self.logln(f"Schreibe {len(norm)} KMZ-Dateien...")
+            self.logln(self._txt("convert_writing").format(count=len(norm)))
             written = writer.write_polygons_to_kmzs(
                 norm,
                 str(out_dir),
@@ -3869,7 +4937,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.progress.setValue(100)
 
             self.logln("─" * 60)
-            self.logln(f"✓ {written} KMZ-Dateien generiert")
+            self.logln(self._txt("convert_generated").format(count=written))
 
             combined_kmz_file = None
             if len(norm) > 1:
@@ -3880,19 +4948,25 @@ class MainWindow(QtWidgets.QMainWindow):
                 )
                 if combined_candidates:
                     combined_kmz_file = combined_candidates[0]
-                    self.logln(f"Zusätzliche Sammel-KMZ: {combined_kmz_file.name}")
+                    self.logln(
+                        self._txt("convert_combined").format(
+                            name=combined_kmz_file.name
+                        )
+                    )
 
-            self.logln(f"Ausgabeordner: {out_dir}")
-            self.logln(f"Debug-KMLs: {debug_kml_dir}")
+            self.logln(self._txt("convert_output_folder").format(path=out_dir))
+            self.logln(self._txt("convert_debug_kml").format(path=debug_kml_dir))
             self.status.showMessage(self.strings["done"])
 
-            success_text = (
-                f"✓ Erfolgreich: {written} KMZ-Dateien\n\n"
-                f"Ausgabe:\n{out_dir}\n\n"
-                f"Debug-KMLs:\n{debug_kml_dir}"
+            success_text = self._txt("convert_success_text").format(
+                count=written,
+                out_dir=out_dir,
+                debug_dir=debug_kml_dir,
             )
             if combined_kmz_file is not None:
-                success_text += f"\n\nZusätzliche Sammel-KMZ:\n{combined_kmz_file.name}"
+                success_text += self._txt("convert_combined_suffix").format(
+                    name=combined_kmz_file.name
+                )
 
             QtWidgets.QMessageBox.information(
                 self,
@@ -3902,7 +4976,7 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception as ex:
             tb = traceback.format_exc()
             self.logln("─" * 60)
-            self.logln(f"❌ FEHLER:")
+            self.logln(self._txt("convert_error_log"))
             self.logln(tb)
             self.status.showMessage(self.strings["error"])
             QtWidgets.QMessageBox.critical(self, self.strings["error"], str(ex))
@@ -3936,36 +5010,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def reset_to_defaults(self):
         """Reset all controls to default values"""
-        # Parameters (Defaultwerte sind intern metrisch)
-        self._set_display_values_from_metric(BASE_DEFAULTS)
-
-        self.overlap_slider.blockSignals(True)
-        self.overlap_spin.blockSignals(True)
-        self.overlap_slider.setValue(30)
-        self.overlap_spin.setValue(30)
-        self.overlap_slider.blockSignals(False)
-        self.overlap_spin.blockSignals(False)
-
-        self.margin_slider.blockSignals(True)
-        self.margin_spin.blockSignals(True)
-        self.margin_slider.setValue(0)
-        self.margin_spin.setValue(0)
-        self.margin_slider.blockSignals(False)
-        self.margin_spin.blockSignals(False)
-
-        # Comboboxes
-        self.drone_combo.setCurrentText("M4T")
-        self.action_combo.setCurrentText("Rückkehrfunktion")
-
-        # Checkboxes
-        self.optimize_direction_check.setChecked(True)
-        self.elevation_optimize_check.setChecked(False)
-
-        # File paths
-        self.kmz_edit.clear()
-        self.out_edit.setText(str(Path.cwd() / "out"))
-        self.excluded_area_keys.clear()
-        self.selected_start_area_key = None
+        defaults = (
+            self.user_defaults.get("defaults", {})
+            if isinstance(self.user_defaults, dict)
+            else {}
+        )
+        self._apply_form_defaults(defaults)
 
         # Output
         self.output_label.clear()

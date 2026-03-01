@@ -379,7 +379,6 @@ def write_polygons_to_kmzs(
             kmz_file, mode="w", compression=zipfile.ZIP_DEFLATED
         ) as zf:
             zf.writestr("wpmz/template.kml", xml)
-            zf.writestr("wpmz/waylines.wpml", xml)
             zf.writestr("doc.kml", xml)
 
         count += 1
@@ -405,7 +404,6 @@ def write_polygons_to_kmzs(
             compression=zipfile.ZIP_DEFLATED,
         ) as zf:
             zf.writestr("wpmz/template.kml", combined_xml)
-            zf.writestr("wpmz/waylines.wpml", combined_xml)
             zf.writestr("doc.kml", combined_xml)
 
     return count

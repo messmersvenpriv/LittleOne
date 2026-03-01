@@ -76,6 +76,10 @@
         const defaultZoom = 11;
         const removeLabel = "Fläche entfernen";
         const addLabel = "Fläche wieder aufnehmen";
+        const setStartLabel = "Als Startfläche festlegen";
+        const selectedStartLabel = "Startfläche ausgewählt";
+        const setNewStartLabel = "Diese Fläche als neuen Startpunkt festlegen";
+        let selectedStartKey = null;
         const optDisabledText = "Winkeloptimierung ist deaktiviert.";
         const statsActiveText = "Flächen aktiv";
         const statsDistanceText = "Geschätzte Strecke";
@@ -234,9 +238,60 @@
                 const isExcluded = excluded.has(feature.key);
                 const actionLabel = isExcluded ? addLabel : removeLabel;
                 const actionColor = isExcluded ? '#2e7d32' : '#b71c1c';
+                const isStart = selectedStartKey && selectedStartKey === feature.key;
+                const hasOtherStart = !!selectedStartKey && !isStart;
+                const startButtonLabel = isStart
+                    ? selectedStartLabel
+                    : (hasOtherStart ? setNewStartLabel : setStartLabel);
+                const startButtonColor = isStart ? '#455a64' : '#1565c0';
+                let infoBlocks = [];
+                if (feature.kitz_show && feature.kitz_yearly && typeof feature.kitz_yearly === 'object') {
+                    const years = Object.keys(feature.kitz_yearly)
+                        .map(x => Number(x))
+                        .filter(x => Number.isFinite(x))
+                        .sort((a, b) => a - b);
+                    const rows = [];
+                    for (const year of years) {
+                        const val = Number(feature.kitz_yearly[String(year)] ?? feature.kitz_yearly[year] ?? 0);
+                        rows.push(String(year) + ': ' + String(Math.max(0, Math.round(val))) + ' Kitze');
+                    }
+                    const avg = Number(feature.kitz_avg || 0);
+                    const areaHa = Number(feature.area_ha || 0);
+                    if (rows.length > 0) {
+                        infoBlocks.push('<b>Kitzfunde im Polygon</b><br>' + rows.map(escapeHtml).join('<br>') +
+                            '<br>Ø Kitze: ' + escapeHtml(avg.toFixed(2)) +
+                            '<br>Fläche: ' + escapeHtml(areaHa.toFixed(2)) + ' ha');
+                    }
+                }
+
+                if (feature.time_show) {
+                    const flightMin = Number(feature.flight_time_min || 0);
+                    const factor = Number(feature.flight_factor || 1);
+                    const adjFlightMin = Number(feature.adjusted_flight_min || 0);
+                    const kitzMin = Number(feature.kitz_time_min || 0);
+                    const kitzBaseMin = Number(feature.kitz_minutes_per_item || 0);
+                    const kitzExtraMin = Number(feature.kitz_extra_minutes_per_item || 0);
+                    const kitzTotalCalcMin = Number(feature.kitz_minutes_total || 0);
+                    const totalMin = Number(feature.processing_total_min || 0);
+                    const avgKitz = Number(feature.kitz_avg || 0);
+                    infoBlocks.push(
+                        '<b>Zeitabschätzung Fläche</b><br>' +
+                        'Flugzeit: ' + escapeHtml(flightMin.toFixed(1)) + ' min<br>' +
+                        'Faktor: ' + escapeHtml(factor.toFixed(1)) +
+                        ' → Flug bereinigt: ' + escapeHtml(adjFlightMin.toFixed(1)) + ' min<br>' +
+                        'Kitzzeit: 1. Kitz ' + escapeHtml(kitzBaseMin.toFixed(1)) + ' min' +
+                        ' + ab 2. Kitz ' + escapeHtml(kitzExtraMin.toFixed(1)) + ' min' +
+                        ' (Ø ' + escapeHtml(avgKitz.toFixed(2)) + ' Kitze)' +
+                        ' = ' + escapeHtml((kitzTotalCalcMin || kitzMin).toFixed(1)) + ' min<br>' +
+                        '<b>Bearbeitung gesamt: ' + escapeHtml(totalMin.toFixed(1)) + ' min</b>'
+                    );
+                }
+
+                const extraInfo = infoBlocks.length > 0 ? '<br><br>' + infoBlocks.join('<br><br>') : '';
+
                 return `
                     <b>${escapeHtml(feature.label)}</b><br>
-                    ${escapeHtml(feature.applicant)}<br><br>
+                    ${escapeHtml(feature.applicant)}${extraInfo}<br><br>
                     <button
                         type="button"
                         class="toggle-area-btn"
@@ -244,6 +299,14 @@
                         style="padding:6px 10px;border:1px solid #555;border-radius:4px;cursor:pointer;color:white;background:${actionColor};"
                     >
                         ${escapeHtml(actionLabel)}
+                    </button>
+                    <button
+                        type="button"
+                        class="set-start-btn"
+                        data-key="${encodeURIComponent(feature.key)}"
+                        style="margin-left:8px;padding:6px 10px;border:1px solid #555;border-radius:4px;cursor:pointer;color:white;background:${startButtonColor};"
+                    >
+                        ${escapeHtml(startButtonLabel)}
                     </button>
                 `;
             }
@@ -307,6 +370,22 @@
                 }
             };
 
+            window.setStartArea = function(encodedKey) {
+                const key = decodeURIComponent(encodedKey);
+                if (!featureByKey.has(key)) return;
+                selectedStartKey = key;
+
+                for (const [k, lyr] of layersByKey.entries()) {
+                    const feat = featureByKey.get(k);
+                    if (!feat) continue;
+                    lyr.setPopupContent(popupHtml(feat));
+                }
+
+                if (bridge && typeof bridge.setStartArea === 'function') {
+                    bridge.setStartArea(key);
+                }
+            };
+
             const map = L.map('map', { zoomControl: true });
             L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
                 attribution: 'Tiles © Esri'
@@ -346,12 +425,17 @@
                         return;
                     }
                     const btn = root.querySelector('.toggle-area-btn');
-                    if (!btn) {
-                        return;
+                    if (btn) {
+                        btn.onclick = function() {
+                            window.toggleArea(btn.dataset.key || '');
+                        };
                     }
-                    btn.onclick = function() {
-                        window.toggleArea(btn.dataset.key || '');
-                    };
+                    const startBtn = root.querySelector('.set-start-btn');
+                    if (startBtn) {
+                        startBtn.onclick = function() {
+                            window.setStartArea(startBtn.dataset.key || '');
+                        };
+                    }
                 });
                 poly.addTo(group);
             }
