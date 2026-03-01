@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "LittleOne"
-version = "0.2.0"
+version = "0.2.2"
 description = "KMZ→KML-Formatter (DJI Pilot 2) mit GUI"
 readme = "README.md"
 requires-python = ">=3.10"
