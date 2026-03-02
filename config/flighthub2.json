@@ -1,0 +1,27 @@
+{
+  "base_url": "https://es-flight-api-eu.djigate.com",
+  "timeout_seconds": 30,
+  "project_uuid": "a55f548e-1305-498f-8235-5a73ebbb499f",
+  "auth": {
+    "header_name": "X-User-Token",
+    "token_prefix": "",
+    "access_token": "eyJhbGciOiJIUzUxMiIsImNyaXQiOlsidHlwIiwiYWxnIiwia2lkIl0sImtpZCI6ImFmNDk1MWI0LWJiZGEtNGY4MS04ZGFlLTdhNTI0ZWEzYTdiNSIsInR5cCI6IkpXVCJ9.eyJhY2NvdW50Ijoia2l0enJldHR1bmdyYWJhYmFAZ21haWwuY29tIiwiZXhwIjoyMDg4MDg2MjczLCJuYmYiOjE3NzI0NjcwNzMsIm9yZ2FuaXphdGlvbl91dWlkIjoiM2UyMzVlMDUtYjY5OS00NTdlLWJlNDItOGJkYThlZjY0Mjk1IiwicHJvamVjdF91dWlkIjoiIiwic3ViIjoiZmgyIiwidXNlcl9pZCI6IjEzOTg5ODQ3OTAyODE0NzgxNDQifQ.hJr430rMahA8qB_2JafCME877ZtolbHofJJc4EtyIrzylyYfHETvrQrHVZrh82pd0-RTiTUuHxQlDTPebJ0EyA",
+    "token_url": "",
+    "client_id": "",
+    "client_secret": ""
+  },
+  "endpoints": {
+    "devices": "/openapi/v0.1/project/device",
+    "upload": "/openapi/v0.1/wayline/finish-upload",
+    "assign": "/openapi/v0.1/flight-task"
+  },
+  "devices": [
+    {
+      "id": "1581F7K3C251900C55PL",
+      "name": "M4T_1",
+      "model": "M4T",
+      "workspace_id": "a55f548e-1305-498f-8235-5a73ebbb499f",
+      "enabled": true
+    }
+  ]
+}

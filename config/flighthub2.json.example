@@ -1,0 +1,32 @@
+{
+  "base_url": "https://your-flighthub-bridge.example.com",
+  "timeout_seconds": 30,
+  "mode": "bridge-json-base64",
+  "auth": {
+    "access_token": "",
+    "token_url": "",
+    "client_id": "",
+    "client_secret": ""
+  },
+  "endpoints": {
+    "devices": "/api/flighthub/devices",
+    "upload": "/api/flighthub/missions/upload",
+    "assign": "/api/flighthub/missions/assign"
+  },
+  "devices": [
+    {
+      "id": "DEVICE-ID-1",
+      "name": "M4T-Team-1",
+      "model": "M4T",
+      "workspace_id": "",
+      "enabled": true
+    },
+    {
+      "id": "DEVICE-ID-2",
+      "name": "M3T-Team-2",
+      "model": "M3T",
+      "workspace_id": "",
+      "enabled": true
+    }
+  ]
+}

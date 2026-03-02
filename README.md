@@ -26,6 +26,10 @@ Die Dateien sind sofort in **DJI Pilot 2** importierbar.
 ## Neue Funktionen (Stand aktuell)
 
 - **Integrierte Satellitenkarte** direkt in der App
+- **Neuer Button: Konvertieren & Hochladen**
+  - zeigt beim Klick ein Dropdown mit verfügbaren Zielgeräten
+  - filtert nach gewähltem Drohnentyp (M4T/M3T/M2EA)
+  - konvertiert und lädt die erzeugten KMZ-Dateien direkt hoch
 - **Flächen im Popup ausschließen/wieder aufnehmen**
   - ausgeschlossene Flächen werden grau dargestellt
   - ausgeschlossene Flächen werden nicht konvertiert
@@ -135,6 +139,42 @@ Wenn eine KMZ/KML geladen ist, kannst du über **Tagesplan** vor der Konvertieru
   - Segmentliste mit Strecke und Fahrzeit pro Abschnitt
 
 Hinweis: Für echte Straßenrouten nutzt LittleOne OSRM (Online). Wenn kein Routing-Dienst erreichbar ist, wird automatisch ein Luftlinien-Fallback mit Durchschnittsgeschwindigkeit verwendet.
+
+### Konvertieren und Hochladen (FlightHub-Workflow)
+
+- **Konvertieren**: erzeugt nur lokale KMZ-Dateien
+- **Konvertieren und Hochladen**:
+  1. Dropdown für Zielgerät (passend zum ausgewählten Drohnentyp)
+  2. Konvertierung
+  3. Upload der erzeugten KMZ-Dateien
+  4. Optionales Mission-Assignment (wenn Endpoint konfiguriert)
+
+Benötigte Datei: `config/flighthub2.json`  
+Vorlage: `config/flighthub2.json.example`
+
+Pflichtfelder in der Config:
+
+- `base_url`
+- `endpoints.upload`
+- `devices[]` mit `id`, `name`, `model`, optional `workspace_id`, `enabled`
+
+Optional (empfohlen):
+
+- `endpoints.devices` für Live-Geräteliste aus API
+- `endpoints.assign` für Mission-Zuweisung nach Upload
+
+Credentials (eine Variante):
+
+- `auth.access_token` **oder**
+- `auth.token_url` + `auth.client_id` + `auth.client_secret`
+
+Welche Werte du konkret eintragen musst:
+
+- `auth.access_token`: Bearer Token eures FlightHub-Backends (falls statischer Token)
+- `auth.token_url`: OAuth-Token-Endpoint (falls Client-Credentials genutzt werden)
+- `auth.client_id` / `auth.client_secret`: OAuth Client-Credentials
+- `devices[].id`: eindeutige Geräte-ID aus eurem System
+- `devices[].model`: exakt `M4T`, `M3T` oder `M2EA` (für den Typfilter im Dropdown)
 
 ---
 

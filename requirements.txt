@@ -12,3 +12,5 @@ pytest>=8.0
 # Sonstiges (Kompatibilität)
 typing-extensions>=4.8
 numpy>=1.26
+oss2>=2.18
+boto3>=1.34

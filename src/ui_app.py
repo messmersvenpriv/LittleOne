@@ -18,6 +18,7 @@ import json
 import csv
 import hashlib
 import math
+import base64
 from datetime import datetime
 import subprocess
 import webbrowser
@@ -26,6 +27,7 @@ import urllib.error
 import urllib.parse
 import tempfile
 import socket
+import uuid
 
 ENGINE_IMPORT_ERROR = None
 optimize_angle_mod = None
@@ -93,7 +95,18 @@ LANGUAGES = {
         "optimize_group": "Optimierungen",
         "optimize_dir": "Winkeloptimierung aktiv",
         "optimize_elev": "Elevation-Optimierung aktiv",
-        "convert": "Konvertieren",
+        "convert": "Konvertieren und Exportieren",
+        "convert_upload": "Konvertieren und Hochladen",
+        "upload_select_drone": "Zieldrohne auswählen",
+        "upload_no_mapping": "Keine FlightHub-Gerätezuordnung für den gewählten Drohnentyp gefunden.",
+        "upload_missing_config": "FlightHub-Konfiguration fehlt oder ist ungültig:\n{path}",
+        "upload_invalid_config": "FlightHub-Konfiguration ist unvollständig:\n{details}",
+        "upload_devices_api_failed": "Geräteliste konnte nicht live geladen werden. Es wird das lokale Mapping verwendet.",
+        "upload_missing_mission_id": "Upload-Antwort enthält keine mission_id (Datei: {file}).",
+        "upload_started": "Konvertierung und Upload gestartet ...",
+        "upload_done": "Upload abgeschlossen",
+        "upload_failed": "Upload fehlgeschlagen",
+        "upload_select_prompt": "Bitte Zielgerät für Typ {drone} auswählen:",
         "day_plan": "Tagesplan",
         "reset": "Zurücksetzen",
         "output": "Ausgabe",
@@ -290,7 +303,18 @@ LANGUAGES = {
         "optimize_group": "Optimizations",
         "optimize_dir": "Angle Optimization",
         "optimize_elev": "Elevation Optimization",
-        "convert": "Convert",
+        "convert": "Convert and Export",
+        "convert_upload": "Convert and Upload",
+        "upload_select_drone": "Select target drone",
+        "upload_no_mapping": "No FlightHub device mapping found for the selected drone type.",
+        "upload_missing_config": "FlightHub configuration is missing or invalid:\n{path}",
+        "upload_invalid_config": "FlightHub configuration is incomplete:\n{details}",
+        "upload_devices_api_failed": "Could not load live device list. Falling back to local mapping.",
+        "upload_missing_mission_id": "Upload response has no mission_id (file: {file}).",
+        "upload_started": "Conversion and upload started ...",
+        "upload_done": "Upload completed",
+        "upload_failed": "Upload failed",
+        "upload_select_prompt": "Select target device for type {drone}:",
         "day_plan": "Day Plan",
         "reset": "Reset",
         "output": "Output",
@@ -680,7 +704,7 @@ FORM_DEFAULTS = {
     "action": "Rückkehrfunktion",
     "optimize_direction": True,
     "optimize_elevation": False,
-    "output_dir": "out",
+    "output_dir": "",
 }
 
 
@@ -731,6 +755,548 @@ def _ensure_engine_modules():
     kmz_reader, kml_writer, dji_rules, optimize_angle_mod = loaded
     ENGINE_IMPORT_ERROR = None
     return True, None
+
+
+class FlightHubSyncClient:
+    def __init__(self, config: dict):
+        self.config = config or {}
+        self.base_url = str(self.config.get("base_url") or "").strip().rstrip("/")
+        self.timeout = int(self.config.get("timeout_seconds", 30))
+
+    def _configured_project_uuid(self) -> str:
+        value = str(self.config.get("project_uuid") or "").strip()
+        if value:
+            return value
+        auth = self.config.get("auth") if isinstance(self.config, dict) else {}
+        auth = auth if isinstance(auth, dict) else {}
+        return str(auth.get("project_uuid") or "").strip()
+
+    def _base_auth_headers(self) -> dict:
+        auth = self.config.get("auth") if isinstance(self.config, dict) else {}
+        auth = auth if isinstance(auth, dict) else {}
+
+        headers = {}
+        static_token = str(auth.get("access_token") or "").strip()
+        if static_token:
+            header_name = str(auth.get("header_name") or "Authorization").strip()
+            if header_name.lower() == "authorization":
+                token_prefix = str(auth.get("token_prefix") or "Bearer").strip()
+                headers["Authorization"] = (
+                    f"{token_prefix} {static_token}" if token_prefix else static_token
+                )
+            else:
+                headers[header_name] = static_token
+
+            # FlightHub2 OpenAPI expects X-User-Token.
+            # Keep x-auth-token compatibility for gateway/UI APIs.
+            headers.setdefault("X-User-Token", static_token)
+            headers.setdefault("x-auth-token", static_token)
+
+        project_uuid = self._configured_project_uuid()
+        if project_uuid:
+            headers["X-Project-Uuid"] = project_uuid
+        return headers
+
+    def _build_url(self, path_or_url: str) -> str:
+        raw = str(path_or_url or "").strip()
+        if not raw:
+            raise ValueError("FlightHub endpoint is missing")
+        if raw.startswith("http://") or raw.startswith("https://"):
+            return raw
+        if not self.base_url:
+            raise ValueError("FlightHub base_url is missing")
+        if not raw.startswith("/"):
+            raw = "/" + raw
+        return self.base_url + raw
+
+    def _request_json(
+        self,
+        method: str,
+        path_or_url: str,
+        payload: dict | None = None,
+        extra_headers: dict | None = None,
+    ) -> dict:
+        url = self._build_url(path_or_url)
+        headers = {
+            "User-Agent": "LittleOne-FlightHub/1.0",
+            "Accept": "application/json",
+            "X-Request-Id": str(uuid.uuid4()),
+        }
+        headers.update(self._base_auth_headers())
+        if extra_headers:
+            headers.update({str(k): str(v) for k, v in extra_headers.items()})
+
+        body = None
+        if payload is not None:
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+
+        req = urllib.request.Request(url, data=body, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                text = resp.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as ex:
+            err_text = ex.read().decode("utf-8", errors="replace") if ex.fp else ""
+            err_payload = {}
+            if err_text.strip():
+                try:
+                    parsed = json.loads(err_text)
+                    if isinstance(parsed, dict):
+                        err_payload = parsed
+                    else:
+                        err_payload = {"data": parsed}
+                except Exception:
+                    err_payload = {"raw": err_text}
+
+            detail = (
+                err_payload.get("message") if isinstance(err_payload, dict) else None
+            )
+            detail = str(detail or err_payload or ex.reason)
+            raise RuntimeError(f"HTTP {ex.code} {ex.reason}: {detail}") from ex
+        if not text.strip():
+            return {}
+        try:
+            parsed = json.loads(text)
+            return parsed if isinstance(parsed, dict) else {"data": parsed}
+        except Exception:
+            return {"raw": text}
+
+    def _auth_headers(self) -> dict:
+        auth = self.config.get("auth") if isinstance(self.config, dict) else {}
+        auth = auth if isinstance(auth, dict) else {}
+
+        static_token = str(auth.get("access_token") or "").strip()
+        if static_token:
+            return self._base_auth_headers()
+
+        token_url = str(auth.get("token_url") or "").strip()
+        client_id = str(auth.get("client_id") or "").strip()
+        client_secret = str(auth.get("client_secret") or "").strip()
+        if not (token_url and client_id and client_secret):
+            return {}
+
+        payload = {
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": client_secret,
+        }
+        token_data = self._request_json("POST", token_url, payload=payload)
+        token = str(token_data.get("access_token") or "").strip()
+        if not token:
+            raise RuntimeError("FlightHub token request returned no access_token")
+        oauth_headers = self._base_auth_headers()
+        token_prefix = str(auth.get("token_prefix") or "Bearer").strip()
+        oauth_headers["Authorization"] = (
+            f"{token_prefix} {token}" if token_prefix else token
+        )
+        return oauth_headers
+
+    def validate_config(self) -> list[str]:
+        issues = []
+        if not self.base_url:
+            issues.append("base_url fehlt")
+
+        endpoints = (
+            self.config.get("endpoints") if isinstance(self.config, dict) else {}
+        )
+        endpoints = endpoints if isinstance(endpoints, dict) else {}
+        upload_endpoint = str(endpoints.get("upload") or "").strip()
+        if not upload_endpoint:
+            issues.append("endpoints.upload fehlt")
+
+        auth = self.config.get("auth") if isinstance(self.config, dict) else {}
+        auth = auth if isinstance(auth, dict) else {}
+        has_access_token = bool(str(auth.get("access_token") or "").strip())
+        has_oauth = all(
+            bool(str(auth.get(key) or "").strip())
+            for key in ("token_url", "client_id", "client_secret")
+        )
+        if not (has_access_token or has_oauth):
+            issues.append(
+                "Credentials fehlen (auth.access_token ODER auth.token_url + client_id + client_secret)"
+            )
+        return issues
+
+    def _normalize_devices(self, raw) -> list[dict]:
+        def _map_model_name(value: str) -> str:
+            text = str(value or "").strip().upper().replace(" ", "")
+            if "MATRICE4T" in text or text in {"M4T", "M4TD"}:
+                return "M4T"
+            if "MATRICE3T" in text or text in {"M3T", "M3TD"}:
+                return "M3T"
+            if "MATRICE30T" in text or text in {"M30T", "M2EA"}:
+                return "M2EA"
+            return str(value or "").strip()
+
+        out = []
+
+        # FlightHub2 OpenAPI shape: data.list[].drone / data.list[].gateway
+        if isinstance(raw, dict):
+            data = raw.get("data") if isinstance(raw.get("data"), dict) else {}
+            list_items = data.get("list") if isinstance(data, dict) else []
+            if isinstance(list_items, list):
+                for item in list_items:
+                    if not isinstance(item, dict):
+                        continue
+                    for node_key in ("drone", "gateway"):
+                        node = item.get(node_key)
+                        if not isinstance(node, dict):
+                            continue
+                        dev_id = str(node.get("sn") or "").strip()
+                        model_raw = ""
+                        device_model = node.get("device_model")
+                        if isinstance(device_model, dict):
+                            model_raw = str(device_model.get("name") or "").strip()
+                        model = _map_model_name(model_raw)
+                        if not dev_id or not model:
+                            continue
+                        out.append(
+                            {
+                                "id": dev_id,
+                                "name": str(node.get("callsign") or dev_id),
+                                "model": model,
+                                "workspace_id": self._configured_project_uuid(),
+                                "enabled": True,
+                            }
+                        )
+                if out:
+                    return out
+
+        if isinstance(raw, dict):
+            candidates = (
+                raw.get("devices")
+                or raw.get("items")
+                or raw.get("results")
+                or raw.get("data")
+                or []
+            )
+        elif isinstance(raw, list):
+            candidates = raw
+        else:
+            candidates = []
+
+        for item in candidates:
+            if not isinstance(item, dict):
+                continue
+            dev_id = str(
+                item.get("id") or item.get("device_id") or item.get("deviceId") or ""
+            ).strip()
+            model = str(
+                item.get("model")
+                or item.get("drone_type")
+                or item.get("droneType")
+                or ""
+            ).strip()
+            model = _map_model_name(model)
+            if not dev_id or not model:
+                continue
+            out.append(
+                {
+                    "id": dev_id,
+                    "name": str(item.get("name") or item.get("label") or dev_id),
+                    "model": model,
+                    "workspace_id": str(
+                        item.get("workspace_id") or item.get("workspaceId") or ""
+                    ),
+                    "enabled": bool(item.get("enabled", True)),
+                }
+            )
+        return out
+
+    def list_devices(self, drone_type: str | None = None) -> list[dict]:
+        endpoints = (
+            self.config.get("endpoints") if isinstance(self.config, dict) else {}
+        )
+        endpoints = endpoints if isinstance(endpoints, dict) else {}
+        devices_endpoint = str(endpoints.get("devices") or "").strip()
+        if not devices_endpoint:
+            return []
+
+        query = ""
+        drone_val = str(drone_type or "").strip()
+        if drone_val and "/openapi/" not in devices_endpoint:
+            query = urllib.parse.urlencode({"model": drone_val})
+
+        path_or_url = devices_endpoint
+        if query:
+            separator = "&" if "?" in devices_endpoint else "?"
+            path_or_url = f"{devices_endpoint}{separator}{query}"
+
+        data = self._request_json(
+            "GET",
+            path_or_url,
+            payload=None,
+            extra_headers=self._auth_headers(),
+        )
+        return self._normalize_devices(data)
+
+    def upload_mission_file(
+        self,
+        file_path: Path,
+        target_device: dict,
+        drone_type: str,
+    ) -> dict:
+        endpoints = (
+            self.config.get("endpoints") if isinstance(self.config, dict) else {}
+        )
+        endpoints = endpoints if isinstance(endpoints, dict) else {}
+        upload_endpoint = str(endpoints.get("upload") or "").strip()
+        if not upload_endpoint:
+            raise RuntimeError("FlightHub upload endpoint is not configured")
+
+        # DJI FlightHub2 OpenAPI flow:
+        # 1) GET /openapi/v0.1/project/sts-token
+        # 2) Upload KMZ to OSS with STS credentials -> object_key
+        # 3) POST /openapi/v0.1/wayline/finish-upload with {name, object_key}
+        if "/openapi/v0.1/wayline/finish-upload" in upload_endpoint:
+            sts_endpoint = str(
+                endpoints.get("sts") or "/openapi/v0.1/project/sts-token"
+            )
+            sts_resp = self._request_json(
+                "GET",
+                sts_endpoint,
+                payload=None,
+                extra_headers=self._auth_headers(),
+            )
+
+            data = sts_resp.get("data") if isinstance(sts_resp, dict) else {}
+            data = data if isinstance(data, dict) else {}
+            endpoint = str(data.get("endpoint") or "").strip()
+            provider = str(data.get("provider") or "").strip().lower()
+            sts_region = str(data.get("region") or "").strip()
+            bucket_name = str(data.get("bucket") or "").strip()
+            prefix = str(data.get("object_key_prefix") or "").strip().strip("/")
+            creds_raw = data.get("credentials")
+            creds = creds_raw if isinstance(creds_raw, dict) else {}
+            access_key_id = str(creds.get("access_key_id") or "").strip()
+            access_key_secret = str(creds.get("access_key_secret") or "").strip()
+            security_token = str(creds.get("security_token") or "").strip()
+
+            missing = []
+            if not endpoint:
+                missing.append("data.endpoint")
+            if not bucket_name:
+                missing.append("data.bucket")
+            if not prefix:
+                missing.append("data.object_key_prefix")
+            if not access_key_id:
+                missing.append("data.credentials.access_key_id")
+            if not access_key_secret:
+                missing.append("data.credentials.access_key_secret")
+            if not security_token:
+                missing.append("data.credentials.security_token")
+            if missing:
+                raise RuntimeError("STS-Antwort unvollständig: " + ", ".join(missing))
+
+            oss_region = sts_region
+            host = ""
+            if (not oss_region) or (provider == "ali" and "-" not in oss_region):
+                try:
+                    host = urllib.parse.urlparse(endpoint).netloc
+                except Exception:
+                    host = ""
+                if "oss-" in host:
+                    seg = host.split("oss-", 1)[1]
+                    seg = seg.split(".", 1)[0]
+                    if seg:
+                        oss_region = seg
+            elif not host:
+                try:
+                    host = urllib.parse.urlparse(endpoint).netloc
+                except Exception:
+                    host = ""
+
+            auth_cfg = self.config.get("auth") if isinstance(self.config, dict) else {}
+            auth_cfg = auth_cfg if isinstance(auth_cfg, dict) else {}
+            allow_v1_fallback = bool(auth_cfg.get("allow_legacy_fallback", False))
+
+            stem = str(file_path.stem or "mission").strip()
+            stem = re.sub(r"[^A-Za-z0-9-]+", "-", stem)
+            stem = re.sub(r"-+", "-", stem).strip("-") or "mission"
+            safe_filename = f"{stem}.kmz"
+            object_key = f"{prefix}/{uuid.uuid4()}/{safe_filename}".strip("/")
+            upload_job = {
+                "provider": provider,
+                "endpoint": endpoint,
+                "bucket": bucket_name,
+                "access_key_id": access_key_id,
+                "access_key_secret": access_key_secret,
+                "security_token": security_token,
+                "object_key": object_key,
+                "file_path": str(file_path),
+                "timeout": int(self.timeout),
+                "auth_version": "v4",
+                "oss_region": oss_region,
+                "allow_v1_fallback": allow_v1_fallback,
+            }
+            upload_script = (
+                "import json,sys\n"
+                "payload=json.loads(sys.stdin.read())\n"
+                "provider=str(payload.get('provider') or '').lower()\n"
+                "endpoint=str(payload.get('endpoint') or '')\n"
+                "if provider=='aws' or 'amazonaws.com' in endpoint:\n"
+                "    import boto3\n"
+                "    from botocore.config import Config\n"
+                "    client=boto3.client(\n"
+                "        's3',\n"
+                "        endpoint_url=endpoint,\n"
+                "        region_name=(payload.get('oss_region') or None),\n"
+                "        aws_access_key_id=payload['access_key_id'],\n"
+                "        aws_secret_access_key=payload['access_key_secret'],\n"
+                "        aws_session_token=payload['security_token'],\n"
+                "        config=Config(signature_version='s3v4', s3={'addressing_style': 'path'})\n"
+                "    )\n"
+                "    with open(payload['file_path'],'rb') as fh:\n"
+                "        client.put_object(Bucket=payload['bucket'], Key=payload['object_key'], Body=fh, ContentType='application/vnd.google-earth.kmz')\n"
+                "    print('OK:aws-s3v4')\n"
+                "    sys.exit(0)\n"
+                "import oss2\n"
+                "preferred=str(payload.get('auth_version') or 'v4')\n"
+                "allow_v1=bool(payload.get('allow_v1_fallback', False))\n"
+                "versions=[preferred]\n"
+                "if 'v2' not in versions:\n"
+                "    versions.append('v2')\n"
+                "if allow_v1 and 'v1' not in versions:\n"
+                "    versions.append('v1')\n"
+                "errors=[]\n"
+                "for ver in versions:\n"
+                "    try:\n"
+                "        if ver=='v4':\n"
+                "            provider2=oss2.credentials.StaticCredentialsProvider(payload['access_key_id'],payload['access_key_secret'],payload['security_token'])\n"
+                "            auth=oss2.ProviderAuthV4(provider2)\n"
+                "        else:\n"
+                "            auth=oss2.StsAuth(payload['access_key_id'],payload['access_key_secret'],payload['security_token'],auth_version=ver)\n"
+                "        bucket=oss2.Bucket(auth,payload['endpoint'],payload['bucket'],connect_timeout=int(payload.get('timeout',30)),region=(payload.get('oss_region') or None))\n"
+                "        bucket.put_object_from_file(payload['object_key'],payload['file_path'],headers={'Content-Type':'application/vnd.google-earth.kmz'})\n"
+                "        print('OK:'+ver)\n"
+                "        sys.exit(0)\n"
+                "    except Exception as ex:\n"
+                "        errors.append(f'[{ver}] {type(ex).__name__}: {ex}')\n"
+                "raise RuntimeError(' ; '.join(errors) if errors else 'unknown oss upload error')\n"
+                "print('OK')\n"
+            )
+            proc = subprocess.run(
+                [sys.executable, "-c", upload_script],
+                input=json.dumps(upload_job, ensure_ascii=False),
+                capture_output=True,
+                text=True,
+                timeout=max(120, int(self.timeout) * 4),
+            )
+            if proc.returncode != 0:
+                detail = (proc.stderr or proc.stdout or "unknown error").strip()
+                raise RuntimeError(
+                    "OSS upload failed: "
+                    f"provider={provider or '-'}, endpoint={endpoint}, region={oss_region or '-'} | "
+                    + detail
+                )
+
+            payload = {
+                "name": stem,
+                "object_key": object_key,
+            }
+            return self._request_json(
+                "POST",
+                upload_endpoint,
+                payload=payload,
+                extra_headers=self._auth_headers(),
+            )
+
+        raw_bytes = file_path.read_bytes()
+        encoded = base64.b64encode(raw_bytes).decode("ascii")
+
+        payload = {
+            "filename": file_path.name,
+            "mime_type": "application/vnd.google-earth.kmz",
+            "content_base64": encoded,
+            "drone_type": str(drone_type or ""),
+            "target": {
+                "id": str(target_device.get("id") or ""),
+                "name": str(target_device.get("name") or ""),
+                "model": str(target_device.get("model") or ""),
+                "workspace_id": str(target_device.get("workspace_id") or ""),
+            },
+        }
+
+        return self._request_json(
+            "POST",
+            upload_endpoint,
+            payload=payload,
+            extra_headers=self._auth_headers(),
+        )
+
+    def assign_mission(
+        self,
+        mission_id: str,
+        target_device: dict,
+        task_name: str | None = None,
+        flight_options: dict | None = None,
+    ) -> dict:
+        endpoints = (
+            self.config.get("endpoints") if isinstance(self.config, dict) else {}
+        )
+        endpoints = endpoints if isinstance(endpoints, dict) else {}
+        assign_endpoint = str(endpoints.get("assign") or "").strip()
+        if not assign_endpoint:
+            return {"skipped": True, "reason": "assign endpoint not configured"}
+
+        if "/openapi/v0.1/flight-task" in assign_endpoint:
+            opts = flight_options if isinstance(flight_options, dict) else {}
+            action_value = str(opts.get("action") or "Rückkehrfunktion")
+            out_of_control = (
+                "return_home" if action_value == "Rückkehrfunktion" else "continue_task"
+            )
+            rth_alt = int(round(float(opts.get("safe_height_m", 60.0))))
+
+            cfg_defaults = (
+                self.config.get("task_defaults")
+                if isinstance(self.config, dict)
+                else {}
+            )
+            cfg_defaults = cfg_defaults if isinstance(cfg_defaults, dict) else {}
+
+            payload = {
+                "name": str(task_name or f"task-{mission_id[:8]}"),
+                "wayline_uuid": str(mission_id or ""),
+                "sn": str(target_device.get("id") or ""),
+                "rth_altitude": rth_alt,
+                "rth_mode": str(cfg_defaults.get("rth_mode") or "preset"),
+                "wayline_precision_type": str(
+                    cfg_defaults.get("wayline_precision_type") or "gps"
+                ),
+                "out_of_control_action_in_flight": out_of_control,
+                "resumable_status": str(
+                    cfg_defaults.get("resumable_status") or "manual"
+                ),
+                "task_type": str(cfg_defaults.get("task_type") or "immediate"),
+                "time_zone": str(cfg_defaults.get("time_zone") or "Europe/Berlin"),
+            }
+
+            landing_dock_sn = str(
+                cfg_defaults.get("landing_dock_sn")
+                or target_device.get("landing_dock_sn")
+                or ""
+            ).strip()
+            if landing_dock_sn:
+                payload["landing_dock_sn"] = landing_dock_sn
+
+            return self._request_json(
+                "POST",
+                assign_endpoint,
+                payload=payload,
+                extra_headers=self._auth_headers(),
+            )
+
+        payload = {
+            "mission_id": str(mission_id or ""),
+            "target_id": str(target_device.get("id") or ""),
+            "workspace_id": str(target_device.get("workspace_id") or ""),
+        }
+        return self._request_json(
+            "POST",
+            assign_endpoint,
+            payload=payload,
+            extra_headers=self._auth_headers(),
+        )
 
 
 class SettingsDialog(QtWidgets.QDialog):
@@ -1156,12 +1722,17 @@ class MainWindow(QtWidgets.QMainWindow):
         input_layout.addWidget(self.progress)
 
         # --- Buttons ---
-        button_layout = QtWidgets.QHBoxLayout()
+        button_layout = QtWidgets.QVBoxLayout()
         self.action_button_layout = button_layout
-        button_layout.setSpacing(10)
+        button_layout.setSpacing(8)
 
         self.convert_btn = QtWidgets.QPushButton(self.strings["convert"])
         self.convert_btn.clicked.connect(self.convert)
+
+        self.convert_upload_btn = QtWidgets.QPushButton(
+            self._txt("convert_upload", "Konvertieren und Hochladen")
+        )
+        self.convert_upload_btn.clicked.connect(self.convert_and_upload)
 
         self.map_btn = QtWidgets.QPushButton(
             self.strings.get("map_refresh", "Karte aktualisieren")
@@ -1180,12 +1751,16 @@ class MainWindow(QtWidgets.QMainWindow):
 
         action_btn_font = self.convert_btn.font()
         action_btn_font.setPointSize(10)
-        self.action_buttons = [
-            self.convert_btn,
+        self.top_action_buttons = [
             self.map_btn,
             self.day_plan_btn,
             self.reset_btn,
         ]
+        self.bottom_action_buttons = [
+            self.convert_btn,
+            self.convert_upload_btn,
+        ]
+        self.action_buttons = self.top_action_buttons + self.bottom_action_buttons
         for btn in self.action_buttons:
             btn.setFont(action_btn_font)
             btn.setFixedHeight(40)
@@ -1194,19 +1769,31 @@ class MainWindow(QtWidgets.QMainWindow):
                 QtWidgets.QSizePolicy.Policy.Fixed,
             )
 
-        button_layout.addStretch(1)
-        button_layout.addWidget(self.convert_btn)
-        button_layout.addWidget(self.map_btn)
-        button_layout.addWidget(self.day_plan_btn)
-        button_layout.addWidget(self.reset_btn)
-        button_layout.addStretch(1)
+        top_row_layout = QtWidgets.QHBoxLayout()
+        self.top_action_button_layout = top_row_layout
+        top_row_layout.setSpacing(10)
+        top_row_layout.addStretch(1)
+        for btn in self.top_action_buttons:
+            top_row_layout.addWidget(btn)
+        top_row_layout.addStretch(1)
+
+        bottom_row_layout = QtWidgets.QHBoxLayout()
+        self.bottom_action_button_layout = bottom_row_layout
+        bottom_row_layout.setSpacing(10)
+        bottom_row_layout.addStretch(1)
+        for btn in self.bottom_action_buttons:
+            bottom_row_layout.addWidget(btn)
+        bottom_row_layout.addStretch(1)
+
+        button_layout.addLayout(top_row_layout)
+        button_layout.addLayout(bottom_row_layout)
         button_layout.setContentsMargins(0, 5, 0, 5)
 
         input_layout.addLayout(button_layout)
 
         # --- Unteres Panel links: Output/Logs ---
         output_panel = QtWidgets.QWidget()
-        output_panel.setMinimumHeight(140)
+        output_panel.setMinimumHeight(96)
         output_layout = QtWidgets.QVBoxLayout(output_panel)
         output_layout.setContentsMargins(0, 0, 0, 0)
 
@@ -1216,7 +1803,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.log = QtWidgets.QPlainTextEdit()
         self.log.setReadOnly(True)
-        self.log.setMinimumHeight(120)
+        self.log.setMinimumHeight(80)
         output_layout.addWidget(self.log)
 
         input_layout.addWidget(output_panel)
@@ -1310,7 +1897,47 @@ class MainWindow(QtWidgets.QMainWindow):
         return max(lower, min(upper, number))
 
     def _default_output_dir(self) -> str:
-        return str(Path.cwd() / "out")
+        downloads = QtCore.QStandardPaths.writableLocation(
+            QtCore.QStandardPaths.StandardLocation.DownloadLocation
+        )
+        if downloads:
+            return str(Path(downloads))
+        return str(Path.home() / "Downloads")
+
+    def _remember_output_dir(self, output_dir: str):
+        out_dir = str(output_dir or "").strip()
+        if not out_dir:
+            return
+
+        defaults_payload = (
+            self.user_defaults if isinstance(self.user_defaults, dict) else {}
+        )
+        defaults_raw = defaults_payload.get("defaults")
+        defaults_obj: dict[str, object] = (
+            {str(k): v for k, v in defaults_raw.items()}
+            if isinstance(defaults_raw, dict)
+            else {}
+        )
+        defaults_obj["output_dir"] = out_dir
+
+        payload = {
+            "theme": self.theme,
+            "language": self.language,
+            "units": self.units,
+            "last_output_dir": out_dir,
+            "defaults": defaults_obj,
+        }
+
+        self.user_defaults = payload
+        try:
+            path = self._user_defaults_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
 
     def _txt(self, key: str, fallback: str = "") -> str:
         value = self.strings.get(key)
@@ -1473,9 +2100,15 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._apply_unit_ranges()
 
-        form_defaults = (
-            data.get("defaults") if isinstance(data.get("defaults"), dict) else {}
+        defaults_raw = data.get("defaults")
+        form_defaults: dict[str, object] = (
+            {str(k): v for k, v in defaults_raw.items()}
+            if isinstance(defaults_raw, dict)
+            else {}
         )
+        last_output_dir = str(data.get("last_output_dir") or "").strip()
+        if last_output_dir:
+            form_defaults["output_dir"] = last_output_dir
         self._apply_form_defaults(form_defaults)
 
         merged_defaults = {**FORM_DEFAULTS, **BASE_DEFAULTS}
@@ -1486,6 +2119,9 @@ class MainWindow(QtWidgets.QMainWindow):
             "theme": self.theme,
             "language": self.language,
             "units": self.units,
+            "last_output_dir": str(
+                merged_defaults.get("output_dir") or self._default_output_dir()
+            ),
             "defaults": merged_defaults,
         }
         self._update_ui_text()
@@ -1496,6 +2132,8 @@ class MainWindow(QtWidgets.QMainWindow):
             "theme": self.theme,
             "language": self.language,
             "units": self.units,
+            "last_output_dir": str(self.out_edit.text()).strip()
+            or self._default_output_dir(),
             "defaults": self._current_form_defaults(),
         }
 
@@ -1565,72 +2203,83 @@ class MainWindow(QtWidgets.QMainWindow):
             self.input_panel.width() if hasattr(self, "input_panel") else self.width()
         )
         available_width = max(0, panel_width - 16)
-        button_count = len(self.action_buttons)
 
-        if button_count <= 0:
-            return
+        def _apply_row(buttons, row_layout):
+            button_count = len(buttons)
+            if button_count <= 0:
+                return
 
-        large_button_width = 140
-        min_button_width = 72
-        max_button_width = 220
+            large_button_width = 140
+            min_button_width = 72
+            max_button_width = 220
 
-        content_widths = []
-        desired_widths = []
-        for btn in self.action_buttons:
-            text_width = btn.fontMetrics().horizontalAdvance(btn.text())
-            content_width = max(
-                min_button_width, min(max_button_width, text_width + 36)
-            )
-            content_widths.append(content_width)
-            desired_widths.append(max(large_button_width, content_width))
+            content_widths = []
+            desired_widths = []
+            for btn in buttons:
+                text_width = btn.fontMetrics().horizontalAdvance(btn.text())
+                content_width = max(
+                    min_button_width, min(max_button_width, text_width + 36)
+                )
+                content_widths.append(content_width)
+                desired_widths.append(max(large_button_width, content_width))
 
-        spacing_value = 10
-        min_total = sum(content_widths) + spacing_value * (button_count - 1)
-        for candidate_spacing in (10, 8, 6, 4):
-            candidate_total = sum(content_widths) + candidate_spacing * (
-                button_count - 1
-            )
-            if candidate_total <= available_width:
-                spacing_value = candidate_spacing
-                min_total = candidate_total
-                break
+            spacing_value = 10
+            min_total = sum(content_widths) + spacing_value * (button_count - 1)
+            for candidate_spacing in (10, 8, 6, 4):
+                candidate_total = sum(content_widths) + candidate_spacing * (
+                    button_count - 1
+                )
+                if candidate_total <= available_width:
+                    spacing_value = candidate_spacing
+                    min_total = candidate_total
+                    break
 
-        desired_total = sum(desired_widths) + spacing_value * (button_count - 1)
+            desired_total = sum(desired_widths) + spacing_value * (button_count - 1)
 
-        if desired_total <= available_width:
-            target_widths = desired_widths
-        elif min_total <= available_width:
-            extra_width = available_width - min_total
-            demands = [
-                max(0, desired_widths[i] - content_widths[i])
-                for i in range(button_count)
-            ]
-            demand_total = sum(demands)
+            if desired_total <= available_width:
+                target_widths = desired_widths
+            elif min_total <= available_width:
+                extra_width = available_width - min_total
+                demands = [
+                    max(0, desired_widths[i] - content_widths[i])
+                    for i in range(button_count)
+                ]
+                demand_total = sum(demands)
 
-            if demand_total <= 0:
-                target_widths = content_widths
+                if demand_total <= 0:
+                    target_widths = content_widths
+                else:
+                    additions = [
+                        int(extra_width * demand / demand_total) for demand in demands
+                    ]
+                    remainder = extra_width - sum(additions)
+                    for i in range(remainder):
+                        additions[i % button_count] += 1
+                    target_widths = [
+                        content_widths[i] + additions[i] for i in range(button_count)
+                    ]
             else:
-                additions = [
-                    int(extra_width * demand / demand_total) for demand in demands
-                ]
-                remainder = extra_width - sum(additions)
-                for i in range(remainder):
-                    additions[i % button_count] += 1
-                target_widths = [
-                    content_widths[i] + additions[i] for i in range(button_count)
-                ]
-        else:
-            width_per_button = max(
-                min_button_width,
-                (available_width - spacing_value * (button_count - 1)) // button_count,
-            )
-            target_widths = [width_per_button for _ in self.action_buttons]
+                width_per_button = max(
+                    min_button_width,
+                    (available_width - spacing_value * (button_count - 1))
+                    // button_count,
+                )
+                target_widths = [width_per_button for _ in buttons]
 
-        if hasattr(self, "action_button_layout"):
-            self.action_button_layout.setSpacing(spacing_value)
+            if row_layout is not None:
+                row_layout.setSpacing(spacing_value)
 
-        for i, btn in enumerate(self.action_buttons):
-            btn.setFixedWidth(target_widths[i])
+            for i, btn in enumerate(buttons):
+                btn.setFixedWidth(target_widths[i])
+
+        _apply_row(
+            getattr(self, "top_action_buttons", []),
+            getattr(self, "top_action_button_layout", None),
+        )
+        _apply_row(
+            getattr(self, "bottom_action_buttons", []),
+            getattr(self, "bottom_action_button_layout", None),
+        )
 
     def _create_menu_bar(self):
         menubar = self.menuBar()
@@ -2050,6 +2699,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Update buttons
         self.convert_btn.setText(self.strings["convert"])
+        self.convert_upload_btn.setText(
+            self._txt("convert_upload", "Konvertieren und Hochladen")
+        )
         self.map_btn.setText(self.strings.get("map_refresh", "Karte aktualisieren"))
         self.day_plan_btn.setText(self.strings.get("day_plan", "Tagesplan"))
         self.reset_btn.setText(self.strings.get("reset", "Zurücksetzen"))
@@ -2433,10 +3085,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def pick_out(self):
         dir_ = QtWidgets.QFileDialog.getExistingDirectory(
-            self, self._txt("pick_output_dir", "Select output folder"), str(Path.cwd())
+            self,
+            self._txt("pick_output_dir", "Select output folder"),
+            str(Path(self.out_edit.text().strip() or self._default_output_dir())),
         )
         if dir_:
             self.out_edit.setText(dir_)
+            self._remember_output_dir(dir_)
 
     def logln(self, msg: str):
         self.log.appendPlainText(msg)
@@ -4067,6 +4722,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.progress.setValue(0)
             self.map_btn.setEnabled(False)
             self.day_plan_btn.setEnabled(False)
+            self.convert_upload_btn.setEnabled(False)
             self.status.showMessage(self.strings.get("map_loading", "Lade Karte..."))
             self.logln(self.strings.get("map_loading", "Lade Karte..."))
             QtCore.QCoreApplication.processEvents()
@@ -4282,6 +4938,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.progress.setValue(0)
             self.map_btn.setEnabled(True)
             self.day_plan_btn.setEnabled(True)
+            self.convert_upload_btn.setEnabled(True)
 
     def _show_day_plan_window(self, entries, day_plan):
         dialog = QtWidgets.QDialog(self)
@@ -4507,6 +5164,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.day_plan_btn.setEnabled(False)
             self.map_btn.setEnabled(False)
             self.convert_btn.setEnabled(False)
+            self.convert_upload_btn.setEnabled(False)
             self.status.showMessage(self._txt("day_plan_calc_status"))
             self.logln(self._txt("day_plan_calc_log"))
             QtCore.QCoreApplication.processEvents()
@@ -4720,86 +5378,204 @@ class MainWindow(QtWidgets.QMainWindow):
             self.day_plan_btn.setEnabled(True)
             self.map_btn.setEnabled(True)
             self.convert_btn.setEnabled(True)
+            self.convert_upload_btn.setEnabled(True)
 
-    def convert(self):
-        try:
-            kmz_path = self._validate_input_path()
-            if kmz_path is None:
-                return
+    def _flighthub_config_path(self) -> Path:
+        return Path(__file__).resolve().parents[1] / "config" / "flighthub2.json"
 
-            out_dir = Path(self.out_edit.text())
-            basename = "area"  # default fallback for polygon names
-
-            ok, import_err = _ensure_engine_modules()
-            if not ok:
-                err_text = (
-                    f"{type(import_err).__name__}: {import_err}"
-                    if import_err
-                    else self._txt("engine_unknown_import_error")
-                )
-                self.logln(self._txt("engine_import_log").format(error=err_text))
-                QtWidgets.QMessageBox.critical(
-                    self,
-                    self.strings["import_error"],
-                    self._txt("engine_load_failed").format(details=err_text),
-                )
-                return
-
-            kmz = kmz_reader
-            writer = kml_writer
-            rules = dji_rules
-            optimizer = optimize_angle_mod
-            if kmz is None or writer is None or rules is None:
-                QtWidgets.QMessageBox.critical(
-                    self,
-                    self.strings["import_error"],
-                    self._txt("engine_unavailable"),
-                )
-                return
-
-            # Options sammeln (intern immer metrisch)
-            metric_values = self._get_metric_values()
-            options = {
-                "flughöhe_m": float(metric_values["altitude"]),
-                "seitlicher_überlapp_prozent": self.overlap_spin.value(),
-                "sichere_starthöhe_m": float(metric_values["safe_height"]),
-                "drohne": self.drone_combo.currentText(),
-                "aktion_beenden": str(
-                    self.action_combo.currentData() or self.action_combo.currentText()
-                ),
-                "geschwindigkeit_ms": float(metric_values["speed"]),
-                "rand": self.margin_spin.value(),
-                "winkel_optimierung_aktiv": self.optimize_direction_check.isChecked(),
-                "elevation_optimize_enable": self.elevation_optimize_check.isChecked(),
+    def _load_flighthub_config(self) -> tuple[dict | None, Path]:
+        cfg_path = self._flighthub_config_path()
+        if not cfg_path.exists():
+            cfg_path.parent.mkdir(parents=True, exist_ok=True)
+            template = {
+                "base_url": "https://your-flighthub-bridge.example.com",
+                "timeout_seconds": 30,
+                "mode": "bridge-json-base64",
+                "auth": {
+                    "access_token": "",
+                    "token_url": "",
+                    "client_id": "",
+                    "client_secret": "",
+                },
+                "endpoints": {
+                    "devices": "/api/flighthub/devices",
+                    "upload": "/api/flighthub/missions/upload",
+                    "assign": "/api/flighthub/missions/assign",
+                },
+                "devices": [
+                    {
+                        "id": "DEVICE-ID-1",
+                        "name": "M4T-Team-1",
+                        "model": "M4T",
+                        "workspace_id": "",
+                        "enabled": True,
+                    }
+                ],
             }
+            cfg_path.write_text(
+                json.dumps(template, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            return None, cfg_path
 
-            # UI für Konvertierung vorbereiten
-            self.progress.setVisible(True)
-            self.progress.setValue(0)
-            self.progress.setMaximum(0)  # Indeterminate mode
-            self.convert_btn.setEnabled(False)
-            self.map_btn.setEnabled(False)
-            self.day_plan_btn.setEnabled(False)
+        try:
+            loaded = json.loads(cfg_path.read_text(encoding="utf-8"))
+            if not isinstance(loaded, dict):
+                return None, cfg_path
+            return loaded, cfg_path
+        except Exception:
+            return None, cfg_path
 
+    def _devices_for_drone_type(self, config: dict, drone_type: str) -> list[dict]:
+        devices = config.get("devices") if isinstance(config, dict) else []
+        if not isinstance(devices, list):
+            return []
+
+        target = str(drone_type or "").strip().upper()
+        out = []
+        for item in devices:
+            if not isinstance(item, dict):
+                continue
+            if item.get("enabled", True) is False:
+                continue
+            model = str(item.get("model") or "").strip().upper()
+            if model != target:
+                continue
+            out.append(item)
+        return out
+
+    def _select_upload_device(
+        self, drone_type: str, devices: list[dict]
+    ) -> dict | None:
+        if not devices:
+            return None
+        labels = []
+        by_label = {}
+        for dev in devices:
+            label = f"{dev.get('name', 'Unnamed')} ({dev.get('id', '-')})"
+            labels.append(label)
+            by_label[label] = dev
+
+        selected, ok = QtWidgets.QInputDialog.getItem(
+            self,
+            self._txt("upload_select_drone", "Zieldrohne auswählen"),
+            self._txt(
+                "upload_select_prompt",
+                "Bitte Zielgerät für Typ {drone} auswählen:",
+            ).format(drone=drone_type),
+            labels,
+            0,
+            False,
+        )
+        if not ok:
+            return None
+        return by_label.get(str(selected))
+
+    def _sanitize_output_name(self, name: str) -> str:
+        cleaned = (name or "").strip()
+        replacements = {
+            "ä": "ae",
+            "ö": "oe",
+            "ü": "ue",
+            "Ä": "Ae",
+            "Ö": "Oe",
+            "Ü": "Ue",
+            "ß": "ss",
+        }
+        for src, dst in replacements.items():
+            cleaned = cleaned.replace(src, dst)
+        cleaned = re.sub(r"\s+", "", cleaned)
+        cleaned = re.sub(r"[^A-Za-z0-9.-]+", "-", cleaned)
+        cleaned = cleaned.replace("_", "-")
+        cleaned = re.sub(r"-+", "-", cleaned)
+        cleaned = cleaned.strip("-.")
+        return cleaned or "area"
+
+    def _run_conversion(
+        self,
+        show_success_dialog: bool = True,
+        output_dir: Path | None = None,
+        persist_output_dir: bool = True,
+        log_output_dir: bool = True,
+    ) -> dict | None:
+        kmz_path = self._validate_input_path()
+        if kmz_path is None:
+            return None
+
+        out_dir = (
+            Path(output_dir) if output_dir is not None else Path(self.out_edit.text())
+        )
+        basename = "area"
+
+        if persist_output_dir:
+            self._remember_output_dir(str(out_dir))
+
+        ok, import_err = _ensure_engine_modules()
+        if not ok:
+            err_text = (
+                f"{type(import_err).__name__}: {import_err}"
+                if import_err
+                else self._txt("engine_unknown_import_error")
+            )
+            self.logln(self._txt("engine_import_log").format(error=err_text))
+            QtWidgets.QMessageBox.critical(
+                self,
+                self.strings["import_error"],
+                self._txt("engine_load_failed").format(details=err_text),
+            )
+            return None
+
+        kmz = kmz_reader
+        writer = kml_writer
+        rules = dji_rules
+        optimizer = optimize_angle_mod
+        if kmz is None or writer is None or rules is None:
+            QtWidgets.QMessageBox.critical(
+                self,
+                self.strings["import_error"],
+                self._txt("engine_unavailable"),
+            )
+            return None
+
+        metric_values = self._get_metric_values()
+        options = {
+            "flughöhe_m": float(metric_values["altitude"]),
+            "seitlicher_überlapp_prozent": self.overlap_spin.value(),
+            "sichere_starthöhe_m": float(metric_values["safe_height"]),
+            "drohne": self.drone_combo.currentText(),
+            "aktion_beenden": str(
+                self.action_combo.currentData() or self.action_combo.currentText()
+            ),
+            "geschwindigkeit_ms": float(metric_values["speed"]),
+            "rand": self.margin_spin.value(),
+            "winkel_optimierung_aktiv": self.optimize_direction_check.isChecked(),
+            "elevation_optimize_enable": self.elevation_optimize_check.isChecked(),
+        }
+
+        self.progress.setVisible(True)
+        self.progress.setValue(0)
+        self.progress.setMaximum(0)
+        self.convert_btn.setEnabled(False)
+        self.convert_upload_btn.setEnabled(False)
+        self.map_btn.setEnabled(False)
+        self.day_plan_btn.setEnabled(False)
+
+        try:
             self.status.showMessage(self.strings["converting"])
             self.logln(self._txt("convert_start_log").format(path=kmz_path))
             self.logln("─" * 60)
             self.logln(self._txt("convert_settings_log"))
-            for k, v in options.items():
-                self.logln(f"  • {k}: {v}")
+            for key, value in options.items():
+                self.logln(f"  • {key}: {value}")
             self.logln("─" * 60)
 
-            # Process events to show progress bar
             QtCore.QCoreApplication.processEvents()
 
-            # Parse & extract
             self.logln(self._txt("convert_parsing_log"))
             features = kmz.parse_kmz_to_area_features(str(kmz_path))
             self.logln(self._txt("convert_features_loaded").format(count=len(features)))
             QtCore.QCoreApplication.processEvents()
 
             summaries = kmz.summarize_features(features)
-
             entries = self._collect_geometry_entries(features, summaries)
             current_keys = {entry["key"] for entry in entries}
             self.excluded_area_keys.intersection_update(current_keys)
@@ -4810,27 +5586,11 @@ class MainWindow(QtWidgets.QMainWindow):
             est_total_distance_m = 0.0
             est_total_time_s = 0.0
 
-            def _clean(v: str) -> str:
-                txt = (v or "").strip()
-                replacements = {
-                    "ä": "ae",
-                    "ö": "oe",
-                    "ü": "ue",
-                    "Ä": "Ae",
-                    "Ö": "Oe",
-                    "Ü": "Ue",
-                    "ß": "ss",
-                }
-                for src, dst in replacements.items():
-                    txt = txt.replace(src, dst)
-                txt = re.sub(r"\s+", "", txt)
-                txt = re.sub(r"[^A-Za-z0-9.-]+", "-", txt)
-                txt = txt.replace("_", "-")
-                txt = re.sub(r"-+", "-", txt)
-                return txt.strip("-.")
+            def _clean(value: str) -> str:
+                return self._sanitize_output_name(value)
 
-            def _fmt_short_date(d):
-                if not d:
+            def _fmt_short_date(day_value):
+                if not day_value:
                     return "ohneDatum"
                 mon = {
                     1: "Jan",
@@ -4846,7 +5606,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     11: "Nov",
                     12: "Dez",
                 }
-                return f"{d.day:02d}{mon.get(d.month, 'Mon')}"
+                return f"{day_value.day:02d}{mon.get(day_value.month, 'Mon')}"
 
             self.logln(self._txt("convert_extract_polygons"))
             skipped = 0
@@ -4854,6 +5614,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 if entry["key"] in self.excluded_area_keys:
                     skipped += 1
                     continue
+
                 feat = entry["feature"]
                 summary = entry["summary"]
                 geom = entry["geom"]
@@ -4863,7 +5624,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 schlag = _clean(
                     entry["label"] or summary.schlag_flurstueck or feat.name or basename
                 )
-
                 base_file_name = f"{nachname}-{datum}-{schlag}"
 
                 polys.append(geom)
@@ -4896,10 +5656,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if not polys:
                 self.logln(self._txt("convert_no_polygons_log"))
                 self.status.showMessage(self._txt("convert_no_polygons_status"))
-                self.progress.setVisible(False)
-                self.convert_btn.setEnabled(True)
-                self.day_plan_btn.setEnabled(True)
-                return
+                return None
 
             self.logln(self._txt("convert_polygons_extracted").format(count=len(polys)))
             if self.optimize_direction_check.isChecked() and est_total_distance_m > 0:
@@ -4912,7 +5669,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 )
             QtCore.QCoreApplication.processEvents()
 
-            # Normalize
             self.logln(self._txt("convert_normalizing"))
             norm = [rules.normalize_polygon(p, add_z_if_missing=True) for p in polys]
             self.logln(self._txt("convert_normalized"))
@@ -4920,7 +5676,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
             out_dir.mkdir(parents=True, exist_ok=True)
 
-            # Generate KMZs
             self.logln(self._txt("convert_writing").format(count=len(norm)))
             written = writer.write_polygons_to_kmzs(
                 norm,
@@ -4934,22 +5689,46 @@ class MainWindow(QtWidgets.QMainWindow):
             self.progress.setMaximum(100)
             self.progress.setValue(100)
 
+            written_files = []
+            for idx in range(written):
+                if idx < len(names):
+                    stem = self._sanitize_output_name(names[idx])
+                else:
+                    stem = self._sanitize_output_name(f"{basename}-{idx + 1:03d}")
+                written_files.append(out_dir / f"{stem}.kmz")
+
             self.logln("─" * 60)
             self.logln(self._txt("convert_generated").format(count=written))
-
-            self.logln(self._txt("convert_output_folder").format(path=out_dir))
+            if log_output_dir:
+                self.logln(self._txt("convert_output_folder").format(path=out_dir))
             self.status.showMessage(self.strings["done"])
 
-            success_text = (
-                f"✓ {self._txt('success', 'Success')}: {written} KMZ-Dateien\n\n"
-                f"{self._txt('output_folder', 'Output folder')}:\n{out_dir}"
-            )
+            if show_success_dialog:
+                success_text = (
+                    f"✓ {self._txt('success', 'Success')}: {written} KMZ-Dateien\n\n"
+                    f"{self._txt('output_folder', 'Output folder')}:\n{out_dir}"
+                )
+                QtWidgets.QMessageBox.information(
+                    self,
+                    self.strings["success"],
+                    success_text,
+                )
 
-            QtWidgets.QMessageBox.information(
-                self,
-                self.strings["success"],
-                success_text,
-            )
+            return {
+                "written": int(written),
+                "out_dir": out_dir,
+                "files": [p for p in written_files if p.exists()],
+            }
+        finally:
+            self.progress.setVisible(False)
+            self.convert_btn.setEnabled(True)
+            self.convert_upload_btn.setEnabled(True)
+            self.map_btn.setEnabled(True)
+            self.day_plan_btn.setEnabled(True)
+
+    def convert(self):
+        try:
+            self._run_conversion(show_success_dialog=True)
         except Exception as ex:
             tb = traceback.format_exc()
             self.logln("─" * 60)
@@ -4957,11 +5736,131 @@ class MainWindow(QtWidgets.QMainWindow):
             self.logln(tb)
             self.status.showMessage(self.strings["error"])
             QtWidgets.QMessageBox.critical(self, self.strings["error"], str(ex))
-        finally:
-            self.progress.setVisible(False)
-            self.convert_btn.setEnabled(True)
-            self.map_btn.setEnabled(True)
-            self.day_plan_btn.setEnabled(True)
+
+    def convert_and_upload(self):
+        try:
+            config, cfg_path = self._load_flighthub_config()
+            if not config:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    self._txt("upload_failed", "Upload fehlgeschlagen"),
+                    self._txt(
+                        "upload_missing_config",
+                        "FlightHub-Konfiguration fehlt oder ist ungültig:\n{path}",
+                    ).format(path=cfg_path),
+                )
+                return
+
+            client = FlightHubSyncClient(config)
+            issues = client.validate_config()
+            if issues:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    self._txt("upload_failed", "Upload fehlgeschlagen"),
+                    self._txt(
+                        "upload_invalid_config",
+                        "FlightHub-Konfiguration ist unvollständig:\n{details}",
+                    ).format(details="\n- " + "\n- ".join(issues)),
+                )
+                return
+
+            drone_type = str(self.drone_combo.currentText()).strip()
+            devices = []
+            try:
+                devices = client.list_devices(drone_type)
+            except Exception as ex:
+                self.logln(f"ℹ {self._txt('upload_devices_api_failed')}: {ex}")
+
+            if not devices:
+                devices = self._devices_for_drone_type(config, drone_type)
+
+            if not devices:
+                QtWidgets.QMessageBox.information(
+                    self,
+                    self._txt("upload_select_drone", "Zieldrohne auswählen"),
+                    self._txt(
+                        "upload_no_mapping",
+                        "Keine FlightHub-Gerätezuordnung für den gewählten Drohnentyp gefunden.",
+                    ),
+                )
+                return
+
+            target_device = self._select_upload_device(drone_type, devices)
+            if not target_device:
+                return
+
+            self.logln(
+                self._txt("upload_started", "Konvertierung und Upload gestartet ...")
+            )
+            metric_values = self._get_metric_values()
+            assign_options = {
+                "safe_height_m": float(metric_values.get("safe_height", 60.0)),
+                "action": str(
+                    self.action_combo.currentData() or self.action_combo.currentText()
+                ),
+            }
+
+            with tempfile.TemporaryDirectory(prefix="littleone-upload-") as tmp_dir:
+                conversion = self._run_conversion(
+                    show_success_dialog=False,
+                    output_dir=Path(tmp_dir),
+                    persist_output_dir=False,
+                    log_output_dir=False,
+                )
+                if not conversion:
+                    return
+
+                files = list(conversion.get("files") or [])
+                if not files:
+                    raise RuntimeError("No generated KMZ files found for upload")
+
+                uploaded_count = 0
+                for file_path in files:
+                    upload_resp = client.upload_mission_file(
+                        file_path, target_device, drone_type
+                    )
+                    mission_id = str(
+                        upload_resp.get("mission_id")
+                        or upload_resp.get("missionId")
+                        or upload_resp.get("id")
+                        or (upload_resp.get("data") or {}).get("uuid")
+                        or upload_resp.get("uuid")
+                        or ""
+                    ).strip()
+                    if mission_id:
+                        assign_resp = client.assign_mission(
+                            mission_id,
+                            target_device,
+                            task_name=Path(file_path).stem,
+                            flight_options=assign_options,
+                        )
+                        self.logln(
+                            f"✓ Upload {file_path.name}: mission_id={mission_id}, assign={assign_resp}"
+                        )
+                    else:
+                        warn_msg = self._txt(
+                            "upload_missing_mission_id",
+                            "Upload-Antwort enthält keine mission_id (Datei: {file}).",
+                        ).format(file=file_path.name)
+                        self.logln(f"⚠ {warn_msg} Response={upload_resp}")
+                    uploaded_count += 1
+
+            self.status.showMessage(self._txt("upload_done", "Upload abgeschlossen"))
+            QtWidgets.QMessageBox.information(
+                self,
+                self._txt("success", "Erfolgreich"),
+                f"{self._txt('upload_done', 'Upload abgeschlossen')}\n\n"
+                f"Dateien: {uploaded_count}\n"
+                f"Ziel: {target_device.get('name', '-')}",
+            )
+        except Exception as ex:
+            self.status.showMessage(self._txt("upload_failed", "Upload fehlgeschlagen"))
+            self.logln(f"❌ Upload-Fehler: {ex}")
+            QtWidgets.QMessageBox.critical(
+                self,
+                self._txt("upload_failed", "Upload fehlgeschlagen"),
+                str(ex),
+            )
 
     def _detect_system_theme(self) -> str:
         """Detect system theme (Light or Dark)"""
