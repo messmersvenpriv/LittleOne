@@ -366,8 +366,13 @@ if (-not $SkipGithub) {
         if ($assets.Count -eq 0) {
             Write-Warn "No release assets found. Skip GitHub release."
         } else {
-            & $ghCmd release view $tag 1>$null 2>$null
-            $releaseExists = ($LASTEXITCODE -eq 0)
+            $releaseExists = $false
+            try {
+                & $ghCmd release view $tag --json name 1>$null 2>$null
+                $releaseExists = ($LASTEXITCODE -eq 0)
+            } catch {
+                $releaseExists = $false
+            }
 
             if (-not $releaseExists) {
                 & $ghCmd release create $tag --title ("LittleOne {0}" -f $tag) --notes-file $notesPath @assets
