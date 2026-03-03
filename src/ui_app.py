@@ -1,4 +1,4 @@
-from PySide6 import QtWidgets, QtGui, QtCore, QtWebChannel
+from PySide6 import QtWidgets, QtGui, QtCore, QtWebChannel, QtSvg
 
 try:
     from PySide6 import QtWebEngineWidgets
@@ -1910,6 +1910,21 @@ class MainWindow(QtWidgets.QMainWindow):
     def _flighthub_logo_icon(self, size: int = 40) -> QtGui.QIcon:
         local_logo_path = self._resource_path("assets/flighthub2_logo.svg")
         if local_logo_path.exists():
+            renderer = QtSvg.QSvgRenderer(str(local_logo_path))
+            if renderer.isValid():
+                pixmap = QtGui.QPixmap(size, size)
+                pixmap.fill(QtCore.Qt.GlobalColor.transparent)
+                painter = QtGui.QPainter(pixmap)
+                painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
+                original_viewbox = renderer.viewBoxF()
+                renderer.setViewBox(QtCore.QRect(0, 0, 106, 100))
+                renderer.render(
+                    painter, QtCore.QRectF(0.0, 0.0, float(size), float(size))
+                )
+                renderer.setViewBox(original_viewbox.toRect())
+                painter.end()
+                return QtGui.QIcon(pixmap)
+
             icon = QtGui.QIcon(str(local_logo_path))
             if not icon.isNull():
                 return icon
@@ -6403,6 +6418,16 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
 if __name__ == "__main__":
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                "KitzrettungRastattBadenBaden.LittleOne"
+            )
+        except Exception:
+            pass
+
     app = QtWidgets.QApplication(sys.argv)
     w = MainWindow()
     w.show()
