@@ -40,7 +40,10 @@ Die Dateien sind sofort in **DJI Pilot 2** importierbar.
   - zeigt Fahrzeiten direkt auf den Routenlinien
   - öffnet ein extra Fenster mit dem detaillierten Tagesplan
 - **Update-Prüfung im Menü**: `Einstellungen → Nach Updates suchen`
-- **Windows-Icon integriert** (Titelleiste + EXE)
+- **Windows-Icon konsistent** (Desktop, Titelleiste, Taskleiste)
+  - explizite AppUserModelID gesetzt, dadurch kein generisches Taskleisten-Symbol mehr
+- **FlightHub 2 Link-Icon angepasst**
+  - im UI wird nur das FlightHub-Logo ohne Schriftzug angezeigt
 
 ---
 
@@ -484,6 +487,7 @@ Bitte mitincludieren:
 
 | Version | Datum | Änderungen |
 |---------|-------|-----------|
+| 1.5 | März 2026 | Windows-Taskleisten-Icon korrigiert (kein generisches Symbol mehr), FlightHub-Logo im Link-Button auf reine Symbolvariante ohne Schriftzug umgestellt |
 | 1.4 | März 2026 | Release `v0.2.2`, Korrektur der DJI-Kartierungslinien beim Import, Export vereinfacht (keine Debug-KMLs, keine Sammel-KMZ) |
 | 1.3 | Feb 2026 | Tagesplan-Button, Fahrreihenfolge-Optimierung, Fahrtrouten mit Zeitlabels, Tagesplan-Fenster |
 | 1.2 | Feb 2026 | Mehrsprachen-GUI, WPMZ-Support, Units-System |
