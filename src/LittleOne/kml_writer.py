@@ -3,7 +3,13 @@ from typing import Iterable, Optional, Sequence
 import time
 import re
 import zipfile
+import math
 from shapely.geometry import Polygon
+
+try:
+    from .optimize_angle import mapping_preview
+except Exception:
+    from LittleOne.optimize_angle import mapping_preview
 
 
 def _fmt_number(value: float) -> str:
@@ -178,6 +184,163 @@ def polygon_to_wpml_kml(polygon: Polygon, options: Optional[dict] = None) -> str
                 <wpml:modelColoringEnable>0</wpml:modelColoringEnable>
                 <wpml:imageFormat>ir</wpml:imageFormat>
             </wpml:payloadParam>
+        </Folder>
+    </Document>
+</kml>
+"""
+
+
+def _haversine_m(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
+    r = 6371000.0
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = (
+        math.sin(dphi / 2.0) ** 2
+        + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2.0) ** 2
+    )
+    return 2.0 * r * math.atan2(math.sqrt(a), math.sqrt(max(1e-12, 1.0 - a)))
+
+
+def _heading_deg(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    dlambda = math.radians(lon2 - lon1)
+    x = math.sin(dlambda) * math.cos(phi2)
+    y = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(phi2) * math.cos(
+        dlambda
+    )
+    brng = math.degrees(math.atan2(x, y))
+    return (brng + 360.0) % 360.0
+
+
+def polygon_to_waylines_wpml(polygon: Polygon, options: Optional[dict] = None) -> str:
+    opts = options or {}
+    profile = _drone_profile(str(opts.get("drohne", "M4T")))
+
+    flughoehe = float(opts.get("flughöhe_m", 60))
+    sichere_starthoehe = float(opts.get("sichere_starthöhe_m", max(20, flughoehe)))
+    speed = max(0.1, float(opts.get("geschwindigkeit_ms", 8)))
+    overlap_w = float(opts.get("seitlicher_überlapp_prozent", 30))
+    direction = float(opts.get("direction", 0))
+    drone = str(opts.get("drohne", "M4T"))
+    finish_action = _map_finish_action(
+        str(opts.get("aktion_beenden", "Rückkehrfunktion"))
+    )
+
+    preview = mapping_preview(
+        polygon,
+        altitude_m=flughoehe,
+        side_overlap_percent=overlap_w,
+        speed_mps=speed,
+        drone=drone,
+        direction_deg=direction,
+    )
+    line_segments = list(preview.get("lines_latlon") or [])
+
+    coords = []
+    for line_index, segment in enumerate(line_segments):
+        if not segment or len(segment) < 2:
+            continue
+        points = [(float(lon), float(lat)) for lat, lon in segment]
+        if line_index % 2 == 1:
+            points.reverse()
+        if coords and points and coords[-1] == points[0]:
+            coords.extend(points[1:])
+        else:
+            coords.extend(points)
+
+    if len(coords) < 2:
+        fallback = [
+            (float(lon), float(lat)) for lon, lat, *_ in polygon.exterior.coords
+        ]
+        if len(fallback) >= 2 and fallback[0] == fallback[-1]:
+            fallback = fallback[:-1]
+        coords = fallback
+
+    if len(coords) < 2:
+        raise ValueError("Polygon requires at least two coordinates for wayline")
+
+    total_distance = 0.0
+    for i in range(len(coords) - 1):
+        total_distance += _haversine_m(
+            coords[i][0], coords[i][1], coords[i + 1][0], coords[i + 1][1]
+        )
+    total_duration = total_distance / speed
+
+    wayline_avoid = ""
+    if profile["include_wayline_avoid"]:
+        wayline_avoid = (
+            "\n      <wpml:waylineAvoidLimitAreaMode>1</wpml:waylineAvoidLimitAreaMode>"
+        )
+
+    placemarks = []
+    for idx, (lon, lat) in enumerate(coords):
+        if idx < len(coords) - 1:
+            next_lon, next_lat = coords[idx + 1]
+        else:
+            next_lon, next_lat = coords[idx]
+        heading = _heading_deg(lon, lat, next_lon, next_lat)
+        placemarks.append(
+            f"""      <Placemark>
+                <Point>
+                    <coordinates>{_fmt_number(lon)},{_fmt_number(lat)}</coordinates>
+                </Point>
+                <wpml:index>{idx}</wpml:index>
+                <wpml:executeHeight>{_fmt_number(flughoehe)}</wpml:executeHeight>
+                <wpml:waypointSpeed>{_fmt_number(speed)}</wpml:waypointSpeed>
+                <wpml:waypointHeadingParam>
+                    <wpml:waypointHeadingMode>followWayline</wpml:waypointHeadingMode>
+                    <wpml:waypointHeadingAngle>{_fmt_number(heading)}</wpml:waypointHeadingAngle>
+                    <wpml:waypointPoiPoint>0.000000,0.000000,0.000000</wpml:waypointPoiPoint>
+                    <wpml:waypointHeadingAngleEnable>0</wpml:waypointHeadingAngleEnable>
+                    <wpml:waypointHeadingPathMode>followBadArc</wpml:waypointHeadingPathMode>
+                    <wpml:waypointHeadingPoiIndex>0</wpml:waypointHeadingPoiIndex>
+                </wpml:waypointHeadingParam>
+                <wpml:waypointTurnParam>
+                    <wpml:waypointTurnMode>coordinateTurn</wpml:waypointTurnMode>
+                    <wpml:waypointTurnDampingDist>0</wpml:waypointTurnDampingDist>
+                </wpml:waypointTurnParam>
+                <wpml:useStraightLine>1</wpml:useStraightLine>
+                <wpml:waypointGimbalHeadingParam>
+                    <wpml:waypointGimbalPitchAngle>0</wpml:waypointGimbalPitchAngle>
+                    <wpml:waypointGimbalYawAngle>0</wpml:waypointGimbalYawAngle>
+                </wpml:waypointGimbalHeadingParam>
+                <wpml:isRisky>0</wpml:isRisky>
+                <wpml:waypointWorkType>0</wpml:waypointWorkType>
+            </Placemark>"""
+        )
+    placemarks_xml = "\n".join(placemarks)
+
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:wpml="http://www.dji.com/wpmz/1.0.6">
+    <Document>
+        <wpml:missionConfig>
+            <wpml:flyToWaylineMode>safely</wpml:flyToWaylineMode>
+            <wpml:finishAction>{finish_action}</wpml:finishAction>
+            <wpml:exitOnRCLost>executeLostAction</wpml:exitOnRCLost>
+            <wpml:executeRCLostAction>goBack</wpml:executeRCLostAction>
+            <wpml:takeOffSecurityHeight>{_fmt_number(sichere_starthoehe)}</wpml:takeOffSecurityHeight>
+            <wpml:globalTransitionalSpeed>15</wpml:globalTransitionalSpeed>
+            <wpml:droneInfo>
+                <wpml:droneEnumValue>{profile["drone_enum"]}</wpml:droneEnumValue>
+                <wpml:droneSubEnumValue>0</wpml:droneSubEnumValue>
+            </wpml:droneInfo>{wayline_avoid}
+            <wpml:payloadInfo>
+                <wpml:payloadEnumValue>{profile["payload_enum"]}</wpml:payloadEnumValue>
+                <wpml:payloadSubEnumValue>2</wpml:payloadSubEnumValue>
+                <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex>
+            </wpml:payloadInfo>
+        </wpml:missionConfig>
+        <Folder>
+            <wpml:templateId>0</wpml:templateId>
+            <wpml:executeHeightMode>relativeToStartPoint</wpml:executeHeightMode>
+            <wpml:waylineId>0</wpml:waylineId>
+            <wpml:distance>{_fmt_number(total_distance)}</wpml:distance>
+            <wpml:duration>{_fmt_number(total_duration)}</wpml:duration>
+            <wpml:autoFlightSpeed>{_fmt_number(speed)}</wpml:autoFlightSpeed>
+{placemarks_xml}
         </Folder>
     </Document>
 </kml>
@@ -365,13 +528,14 @@ def write_polygons_to_kmzs(
             item_options["direction"] = int(directions[i - 1])
 
         xml = polygon_to_wpml_kml(poly, options=item_options)
+        waylines_xml = polygon_to_waylines_wpml(poly, options=item_options)
 
         kmz_file = out_path / f"{file_stem}.kmz"
         with zipfile.ZipFile(
             kmz_file, mode="w", compression=zipfile.ZIP_DEFLATED
         ) as zf:
             zf.writestr("wpmz/template.kml", xml)
-            zf.writestr("wpmz/waylines.wpml", xml)
+            zf.writestr("wpmz/waylines.wpml", waylines_xml)
             zf.writestr("doc.kml", xml)
 
         count += 1

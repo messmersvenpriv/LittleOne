@@ -13,7 +13,13 @@
   "endpoints": {
     "devices": "/openapi/v0.1/project/device",
     "upload": "/openapi/v0.1/wayline/finish-upload",
-    "assign": "/openapi/v0.1/flight-task"
+    "assign": "/openapi/v0.1/flight-task",
+    "cleanup_list": "/openapi/v0.1/wayline/files?page_num=1&page_size=200",
+    "cleanup_delete": "/wayline/api/v1/workspaces/{project_uuid}/waylines/batch-delete"
+  },
+  "upload_cleanup": {
+    "enabled": true,
+    "strict": true
   },
   "devices": [
     {

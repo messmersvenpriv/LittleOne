@@ -11,7 +11,13 @@
   "endpoints": {
     "devices": "/api/flighthub/devices",
     "upload": "/api/flighthub/missions/upload",
-    "assign": "/api/flighthub/missions/assign"
+    "assign": "/api/flighthub/missions/assign",
+    "cleanup_list": "/api/flighthub/missions",
+    "cleanup_delete": "/api/flighthub/missions/{mission_id}"
+  },
+  "upload_cleanup": {
+    "enabled": true,
+    "strict": false
   },
   "devices": [
     {

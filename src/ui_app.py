@@ -163,6 +163,7 @@ LANGUAGES = {
         "offline_notice_message": "Keine Internetverbindung erkannt.\n\nDie Konvertierung von KMZ/KML funktioniert weiterhin.\nKartenansicht und Tagesplan-Routing sind offline eingeschränkt und nutzen ggf. Fallbacks.",
         "link_survey_tip": "Survey123 öffnen",
         "link_arcgis_tip": "ArcGIS Map öffnen",
+        "link_flighthub_tip": "FlightHub 2 öffnen",
         "link_home_tip": "Homepage öffnen",
         "toilet_tip": "Klopapierrolle",
         "toilet_title": "🧻",
@@ -371,6 +372,7 @@ LANGUAGES = {
         "offline_notice_message": "No internet connection detected.\n\nKMZ/KML conversion still works.\nMap view and day-plan routing are limited offline and may use fallbacks.",
         "link_survey_tip": "Open Survey123",
         "link_arcgis_tip": "Open ArcGIS Map",
+        "link_flighthub_tip": "Open FlightHub 2",
         "link_home_tip": "Open Homepage",
         "toilet_tip": "Toilet roll",
         "toilet_title": "🧻",
@@ -560,6 +562,7 @@ LANGUAGES = {
         "offline_notice_message": "Aucune connexion Internet détectée.\n\nLa conversion KMZ/KML continue de fonctionner.\nLa carte et le routage du plan du jour sont limités hors ligne et peuvent utiliser des alternatives.",
         "link_survey_tip": "Ouvrir Survey123",
         "link_arcgis_tip": "Ouvrir la carte ArcGIS",
+        "link_flighthub_tip": "Ouvrir FlightHub 2",
         "link_home_tip": "Ouvrir la page d'accueil",
         "toilet_tip": "Rouleau de papier toilette",
         "toilet_title": "🧻",
@@ -644,6 +647,7 @@ LANGUAGES = {
         "offline_notice_message": "Internet-yhteyttä ei havaittu.\n\nKMZ/KML-muunnos toimii silti.\nKarttanäkymä ja päiväsuunnitelman reititys ovat offline-tilassa rajoitettuja ja voivat käyttää vararatkaisuja.",
         "link_survey_tip": "Avaa Survey123",
         "link_arcgis_tip": "Avaa ArcGIS-kartta",
+        "link_flighthub_tip": "Avaa FlightHub 2",
         "link_home_tip": "Avaa kotisivu",
         "toilet_tip": "Vessapaperirulla",
         "toilet_title": "🧻",
@@ -1194,12 +1198,13 @@ class FlightHubSyncClient:
                 "name": stem,
                 "object_key": object_key,
             }
-            return self._request_json(
+            response = self._request_json(
                 "POST",
                 upload_endpoint,
                 payload=payload,
                 extra_headers=self._auth_headers(),
             )
+            return response
 
         raw_bytes = file_path.read_bytes()
         encoded = base64.b64encode(raw_bytes).decode("ascii")
@@ -1297,6 +1302,442 @@ class FlightHubSyncClient:
             payload=payload,
             extra_headers=self._auth_headers(),
         )
+
+    def _response_code_ok(self, response: dict) -> bool:
+        if not isinstance(response, dict):
+            return True
+        code = response.get("code")
+        if code is None:
+            return True
+        return str(code) == "0"
+
+    def _extract_api_items(self, response: dict) -> list[dict]:
+        if isinstance(response, list):
+            return [item for item in response if isinstance(item, dict)]
+
+        if not isinstance(response, dict):
+            return []
+
+        data = response.get("data")
+        if isinstance(data, dict):
+            for key in (
+                "list",
+                "items",
+                "results",
+                "records",
+                "content",
+                "files",
+                "rows",
+            ):
+                value = data.get(key)
+                if isinstance(value, list):
+                    return [item for item in value if isinstance(item, dict)]
+                if isinstance(value, dict):
+                    for sub_key in (
+                        "list",
+                        "items",
+                        "results",
+                        "records",
+                        "content",
+                        "files",
+                        "rows",
+                    ):
+                        sub_value = value.get(sub_key)
+                        if isinstance(sub_value, list):
+                            return [
+                                item for item in sub_value if isinstance(item, dict)
+                            ]
+        if isinstance(data, list):
+            return [item for item in data if isinstance(item, dict)]
+
+        for key in ("list", "items", "results", "records", "content", "files"):
+            value = response.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+            if isinstance(value, dict):
+                for sub_key in ("list", "items", "results", "records", "content"):
+                    sub_value = value.get(sub_key)
+                    if isinstance(sub_value, list):
+                        return [item for item in sub_value if isinstance(item, dict)]
+        return []
+
+    def _extract_mission_ids(self, item: dict) -> list[str]:
+        if not isinstance(item, dict):
+            return []
+
+        keys = (
+            "file_id",
+            "fileId",
+            "wayline_file_uuid",
+            "waylineFileUuid",
+            "uuid",
+            "mission_id",
+            "missionId",
+            "id",
+            "wayline_uuid",
+            "waylineUuid",
+            "resource_uuid",
+            "resourceUuid",
+        )
+        values: list[str] = []
+        for key in keys:
+            value = str(item.get(key) or "").strip()
+            if value:
+                values.append(value)
+
+        for nested_key in ("wayline", "file", "wayline_file", "resource"):
+            nested = item.get(nested_key)
+            if isinstance(nested, dict):
+                values.extend(self._extract_mission_ids(nested))
+
+        unique: list[str] = []
+        seen = set()
+        for value in values:
+            if value in seen:
+                continue
+            seen.add(value)
+            unique.append(value)
+        return unique
+
+    def _extract_mission_id(self, item: dict) -> str:
+        values = self._extract_mission_ids(item)
+        return values[0] if values else ""
+
+    def list_project_missions(self) -> list[dict]:
+        endpoints = (
+            self.config.get("endpoints") if isinstance(self.config, dict) else {}
+        )
+        endpoints = endpoints if isinstance(endpoints, dict) else {}
+
+        configured = (
+            endpoints.get("cleanup_list") or endpoints.get("list_missions") or ""
+        )
+        candidates = []
+        if isinstance(configured, str) and configured.strip():
+            candidates.append(configured.strip())
+        elif isinstance(configured, list):
+            for value in configured:
+                text = str(value or "").strip()
+                if text:
+                    candidates.append(text)
+
+        upload_endpoint = str(endpoints.get("upload") or "").strip()
+        if "/openapi/v0.1/wayline/finish-upload" in upload_endpoint:
+            candidates.extend(
+                [
+                    "/openapi/v0.1/wayline/files?page_num=1&page_size=200",
+                    "/openapi/v0.1/wayline/list?page_num=1&page_size=200",
+                    "/openapi/v0.1/wayline?page_num=1&page_size=200",
+                    "/openapi/v0.1/wayline/files?current=1&pageSize=200",
+                    "/openapi/v0.1/wayline/list?current=1&pageSize=200",
+                    "/openapi/v0.1/wayline/files?offset=0&limit=200",
+                    "/openapi/v0.1/wayline/list?offset=0&limit=200",
+                    "/openapi/v0.1/wayline/files",
+                    "/openapi/v0.1/wayline/list",
+                    "/openapi/v0.1/wayline/file/list?page_num=1&page_size=200",
+                ]
+            )
+
+        seen = set()
+        unique_candidates = []
+        for item in candidates:
+            if item in seen:
+                continue
+            seen.add(item)
+            unique_candidates.append(item)
+
+        if not unique_candidates:
+            return []
+
+        errors = []
+        for list_endpoint in unique_candidates:
+            try:
+                response = self._request_json(
+                    "GET",
+                    list_endpoint,
+                    payload=None,
+                    extra_headers=self._auth_headers(),
+                )
+                if not self._response_code_ok(response):
+                    message = str(response.get("message") or "unbekannter Fehler")
+                    raise RuntimeError(message)
+
+                items = self._extract_api_items(response)
+                missions = []
+                for item in items:
+                    mission_ids = self._extract_mission_ids(item)
+                    if not mission_ids:
+                        continue
+                    missions.append(
+                        {
+                            "id": mission_ids[0],
+                            "ids": mission_ids,
+                            "name": str(
+                                item.get("name")
+                                or item.get("mission_name")
+                                or item.get("filename")
+                                or item.get("file_name")
+                                or ""
+                            ),
+                            "raw": item,
+                        }
+                    )
+                return missions
+            except Exception as ex:
+                errors.append(f"{list_endpoint}: {ex}")
+
+        detail = " | ".join(errors) if errors else "unbekannter Fehler"
+        raise RuntimeError(f"Mission-Liste konnte nicht geladen werden: {detail}")
+
+    def _delete_payload_variants(self, mission_id: str) -> list[dict]:
+        mission = str(mission_id or "").strip()
+        if not mission:
+            return []
+        return [
+            {"uuid": mission},
+            {"id": mission},
+            {"mission_id": mission},
+            {"missionId": mission},
+            {"wayline_uuid": mission},
+            {"waylineUuid": mission},
+            {"file_id": mission},
+            {"fileId": mission},
+            {"wayline_file_uuid": mission},
+            {"waylineFileUuid": mission},
+            {"uuid_list": [mission]},
+            {"ids": [mission]},
+        ]
+
+    def _batch_delete_payload_variants(self, mission_id: str) -> list[dict]:
+        mission = str(mission_id or "").strip()
+        if not mission:
+            return []
+        return [
+            {"ids": [mission]},
+            {"uuids": [mission]},
+            {"waylineUuids": [mission]},
+            {"wayline_uuids": [mission]},
+            {"waylineIds": [mission]},
+            {"wayline_ids": [mission]},
+            {"idList": [mission]},
+            {"id_list": [mission]},
+            {"deleteIds": [mission]},
+            {"delete_ids": [mission]},
+            {"ids": [mission], "workspaceUuid": self._configured_project_uuid()},
+            {"ids": [mission], "workspace_uuid": self._configured_project_uuid()},
+        ]
+
+    def _delete_mission_via_endpoint(
+        self, endpoint_template: str, mission_id: str
+    ) -> dict:
+        endpoint = str(endpoint_template or "").strip()
+        mission = str(mission_id or "").strip()
+        if not endpoint:
+            raise ValueError("delete endpoint missing")
+        if not mission:
+            raise ValueError("mission_id missing")
+
+        project_uuid = self._configured_project_uuid()
+        if "{project_uuid}" in endpoint and project_uuid:
+            endpoint = endpoint.replace("{project_uuid}", project_uuid)
+
+        if "batch-delete" in endpoint:
+            web_headers = dict(self._auth_headers())
+            web_headers.setdefault("x-language-code", "de-DE")
+            errors = []
+            for payload in self._batch_delete_payload_variants(mission):
+                for method in ("PUT", "POST"):
+                    try:
+                        response = self._request_json(
+                            method,
+                            endpoint,
+                            payload=payload,
+                            extra_headers=web_headers,
+                        )
+                        if not self._response_code_ok(response):
+                            message = str(
+                                response.get("message") or "unbekannter Fehler"
+                            )
+                            raise RuntimeError(message)
+                        return response
+                    except Exception as ex:
+                        errors.append(f"{method} {endpoint}: {ex}")
+            raise RuntimeError(" ; ".join(errors) if errors else "batch-delete failed")
+
+        candidates: list[tuple[str, str, dict | None]] = []
+        if "{mission_id}" in endpoint:
+            resolved = endpoint.replace("{mission_id}", mission)
+            candidates.append(("DELETE", resolved, None))
+        else:
+            candidates.append(("DELETE", endpoint, None))
+            query_keys = (
+                "uuid",
+                "id",
+                "mission_id",
+                "missionId",
+                "wayline_uuid",
+                "file_id",
+                "wayline_file_uuid",
+            )
+            sep = "&" if "?" in endpoint else "?"
+            for key in query_keys:
+                candidates.append(("DELETE", f"{endpoint}{sep}{key}={mission}", None))
+
+            if project_uuid:
+                for key in query_keys:
+                    candidates.append(
+                        (
+                            "DELETE",
+                            f"{endpoint}{sep}{key}={mission}&project_uuid={project_uuid}",
+                            None,
+                        )
+                    )
+                    candidates.append(
+                        (
+                            "DELETE",
+                            f"{endpoint}{sep}{key}={mission}&projectUuid={project_uuid}",
+                            None,
+                        )
+                    )
+            for payload in self._delete_payload_variants(mission):
+                candidates.append(("DELETE", endpoint, payload))
+            for payload in self._delete_payload_variants(mission):
+                candidates.append(("POST", endpoint, payload))
+
+        errors = []
+        for method, resolved_endpoint, payload in candidates:
+            try:
+                response = self._request_json(
+                    method,
+                    resolved_endpoint,
+                    payload=payload,
+                    extra_headers=self._auth_headers(),
+                )
+                if not self._response_code_ok(response):
+                    message = str(response.get("message") or "unbekannter Fehler")
+                    raise RuntimeError(message)
+                return response
+            except Exception as ex:
+                errors.append(f"{method} {resolved_endpoint}: {ex}")
+
+        raise RuntimeError(" ; ".join(errors) if errors else "delete failed")
+
+    def delete_project_mission(self, mission_id: str) -> dict:
+        endpoints = (
+            self.config.get("endpoints") if isinstance(self.config, dict) else {}
+        )
+        endpoints = endpoints if isinstance(endpoints, dict) else {}
+
+        configured = str(
+            endpoints.get("cleanup_delete") or endpoints.get("delete_mission") or ""
+        ).strip()
+
+        candidates = []
+        if configured:
+            candidates.append(configured)
+
+        prefer_configured_only = bool(configured)
+
+        upload_endpoint = str(endpoints.get("upload") or "").strip()
+        project_uuid = self._configured_project_uuid()
+        if (not prefer_configured_only) and (
+            "/openapi/v0.1/wayline/finish-upload" in upload_endpoint
+        ):
+            candidates.extend(
+                [
+                    "/wayline/api/v1/workspaces/{project_uuid}/waylines/batch-delete",
+                    "/wayline/api/v1/workspaces/{project_uuid}/waylines/delete",
+                    "/wayline/api/v1/workspaces/{project_uuid}/waylines/remove",
+                    "/openapi/v0.1/wayline/files",
+                    "/openapi/v0.1/wayline/file",
+                    "/openapi/v0.1/wayline/files/delete",
+                    "/openapi/v0.1/wayline/delete",
+                    "/openapi/v0.1/wayline/remove",
+                    "/openapi/v0.1/wayline/files/remove",
+                    "/openapi/v0.1/wayline/files/{mission_id}",
+                    "/openapi/v0.1/wayline/file/{mission_id}",
+                    "/openapi/v0.1/wayline/files/{mission_id}/delete",
+                    "/openapi/v0.1/wayline/file/{mission_id}/delete",
+                    "/openapi/v0.1/wayline/file/delete/{mission_id}",
+                    "/openapi/v0.1/wayline/{mission_id}",
+                ]
+            )
+
+        if (not prefer_configured_only) and project_uuid:
+            candidates.append(
+                f"/wayline/api/v1/workspaces/{project_uuid}/waylines/batch-delete"
+            )
+
+        seen = set()
+        unique_candidates = []
+        for endpoint in candidates:
+            key = str(endpoint or "").strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            unique_candidates.append(key)
+
+        endpoint_errors = []
+        for endpoint in unique_candidates:
+            try:
+                return self._delete_mission_via_endpoint(endpoint, mission_id)
+            except Exception as ex:
+                endpoint_errors.append(f"{endpoint}: {ex}")
+
+        if endpoint_errors:
+            raise RuntimeError(
+                f"Mission {mission_id} konnte nicht gelöscht werden: "
+                + " | ".join(endpoint_errors)
+            )
+
+        raise RuntimeError("Kein Mission-Delete-Endpoint konfiguriert")
+
+    def purge_project_missions(self) -> dict:
+        try:
+            missions = self.list_project_missions()
+        except Exception as ex:
+            return {
+                "found": 0,
+                "deleted": 0,
+                "errors": [f"list: {ex}"],
+            }
+
+        if not missions:
+            return {"found": 0, "deleted": 0, "errors": []}
+
+        deleted = 0
+        errors = []
+        for mission in missions:
+            mission_ids = mission.get("ids")
+            if isinstance(mission_ids, list):
+                candidate_ids = [
+                    str(value).strip() for value in mission_ids if str(value).strip()
+                ]
+            else:
+                candidate_ids = []
+
+            primary_id = str(mission.get("id") or "").strip()
+            if primary_id and primary_id not in candidate_ids:
+                candidate_ids.insert(0, primary_id)
+
+            if not candidate_ids:
+                continue
+
+            deleted_this = False
+            delete_errors = []
+            for mission_id in candidate_ids:
+                try:
+                    self.delete_project_mission(mission_id)
+                    deleted += 1
+                    deleted_this = True
+                    break
+                except Exception as ex:
+                    delete_errors.append(f"{mission_id}: {ex}")
+
+            if not deleted_this:
+                errors.append(" ; ".join(delete_errors))
+
+        return {"found": len(missions), "deleted": deleted, "errors": errors}
 
 
 class SettingsDialog(QtWidgets.QDialog):
@@ -1466,6 +1907,20 @@ class MainWindow(QtWidgets.QMainWindow):
             return web_logo
         return self._badge_icon("KR", "#2E7D32", size=size)
 
+    def _flighthub_logo_icon(self, size: int = 40) -> QtGui.QIcon:
+        local_logo_path = self._resource_path("assets/flighthub2_logo.svg")
+        if local_logo_path.exists():
+            icon = QtGui.QIcon(str(local_logo_path))
+            if not icon.isNull():
+                return icon
+
+        web_logo = self._icon_from_url(
+            "https://fh.dji.com/assets/svg/logo_flighthub_en.c92d1af5.svg"
+        )
+        if not web_logo.isNull():
+            return web_logo
+        return self._badge_icon("FH2", "#1565C0", size=size)
+
     def _show_toilet_message(self):
         QtWidgets.QMessageBox.information(
             self,
@@ -1550,6 +2005,7 @@ class MainWindow(QtWidgets.QMainWindow):
             "https://kitzrettungrabad.maps.arcgis.com/favicon.ico",
             fallback=self._badge_icon("AG", "#0079C1"),
         )
+        flighthub_icon = self._flighthub_logo_icon()
         home_icon = self._homepage_logo_icon()
 
         self.survey_link_btn = self._make_link_button(
@@ -1565,6 +2021,13 @@ class MainWindow(QtWidgets.QMainWindow):
             "https://kitzrettungrabad.maps.arcgis.com/apps/mapviewer/index.html?webmap=268bfe646cc34f0ca95800a6a85b9425",
         )
         links_row.addWidget(self.arcgis_link_btn)
+
+        self.flighthub_link_btn = self._make_link_button(
+            flighthub_icon,
+            self.strings.get("link_flighthub_tip", "FlightHub 2 öffnen"),
+            "https://fh.dji.com/organization/3e235e05-b699-457e-be42-8bda8ef64295/project/a55f548e-1305-498f-8235-5a73ebbb499f#/wayline",
+        )
+        links_row.addWidget(self.flighthub_link_btn)
 
         self.home_link_btn = self._make_link_button(
             home_icon,
@@ -2721,6 +3184,10 @@ class MainWindow(QtWidgets.QMainWindow):
         if hasattr(self, "arcgis_link_btn"):
             self.arcgis_link_btn.setToolTip(
                 self.strings.get("link_arcgis_tip", "ArcGIS Map öffnen")
+            )
+        if hasattr(self, "flighthub_link_btn"):
+            self.flighthub_link_btn.setToolTip(
+                self.strings.get("link_flighthub_tip", "FlightHub 2 öffnen")
             )
         if hasattr(self, "home_link_btn"):
             self.home_link_btn.setToolTip(
@@ -5764,41 +6231,72 @@ class MainWindow(QtWidgets.QMainWindow):
                 )
                 return
 
-            drone_type = str(self.drone_combo.currentText()).strip()
-            devices = []
-            try:
-                devices = client.list_devices(drone_type)
-            except Exception as ex:
-                self.logln(f"ℹ {self._txt('upload_devices_api_failed')}: {ex}")
-
-            if not devices:
-                devices = self._devices_for_drone_type(config, drone_type)
-
-            if not devices:
-                QtWidgets.QMessageBox.information(
-                    self,
-                    self._txt("upload_select_drone", "Zieldrohne auswählen"),
-                    self._txt(
-                        "upload_no_mapping",
-                        "Keine FlightHub-Gerätezuordnung für den gewählten Drohnentyp gefunden.",
-                    ),
-                )
-                return
-
-            target_device = self._select_upload_device(drone_type, devices)
-            if not target_device:
+            confirm_title = self._txt("upload_confirm_title", "Achtung")
+            confirm_text = self._txt(
+                "upload_confirm_cleanup_text",
+                "Beim Hochladen werden zuerst ALLE vorhandenen Routen im FlightHub-Projekt gelöscht.\n"
+                "Danach werden nur die neu erzeugten Missionen hochgeladen.\n\n"
+                "Die Missionen sind anschließend projektweit verfügbar und können in DJI Pilot 2 abgerufen werden.\n\n"
+                "Fortfahren?",
+            )
+            confirm = QtWidgets.QMessageBox.question(
+                self,
+                confirm_title,
+                confirm_text,
+                QtWidgets.QMessageBox.StandardButton.Yes
+                | QtWidgets.QMessageBox.StandardButton.No,
+                QtWidgets.QMessageBox.StandardButton.No,
+            )
+            if confirm != QtWidgets.QMessageBox.StandardButton.Yes:
                 return
 
             self.logln(
                 self._txt("upload_started", "Konvertierung und Upload gestartet ...")
             )
-            metric_values = self._get_metric_values()
-            assign_options = {
-                "safe_height_m": float(metric_values.get("safe_height", 60.0)),
-                "action": str(
-                    self.action_combo.currentData() or self.action_combo.currentText()
-                ),
-            }
+
+            cleanup_cfg = (
+                config.get("upload_cleanup") if isinstance(config, dict) else {}
+            )
+            cleanup_cfg = cleanup_cfg if isinstance(cleanup_cfg, dict) else {}
+            cleanup_enabled = bool(cleanup_cfg.get("enabled", True))
+            cleanup_strict = bool(cleanup_cfg.get("strict", True))
+
+            if cleanup_enabled:
+                self.logln(
+                    self._txt(
+                        "upload_cleanup_start",
+                        "Bereinige FlightHub-Projekt: vorhandene Routen werden gelöscht ...",
+                    )
+                )
+                cleanup_result = client.purge_project_missions()
+                found = int(cleanup_result.get("found", 0) or 0)
+                deleted = int(cleanup_result.get("deleted", 0) or 0)
+                errors = list(cleanup_result.get("errors") or [])
+
+                self.logln(
+                    self._txt(
+                        "upload_cleanup_result",
+                        "Projekt-Bereinigung: gefunden={found}, gelöscht={deleted}",
+                    ).format(found=found, deleted=deleted)
+                )
+                if errors:
+                    self.logln(
+                        self._txt(
+                            "upload_cleanup_errors",
+                            "Fehler beim Löschen vorhandener Routen:",
+                        )
+                    )
+                    for err in errors:
+                        self.logln(f"  - {err}")
+                    if cleanup_strict:
+                        raise RuntimeError(
+                            self._txt(
+                                "upload_cleanup_strict_abort",
+                                "Upload abgebrochen, weil nicht alle vorhandenen Routen gelöscht werden konnten.",
+                            )
+                        )
+
+            drone_type = str(self.drone_combo.currentText()).strip()
 
             with tempfile.TemporaryDirectory(prefix="littleone-upload-") as tmp_dir:
                 conversion = self._run_conversion(
@@ -5816,9 +6314,18 @@ class MainWindow(QtWidgets.QMainWindow):
 
                 uploaded_count = 0
                 for file_path in files:
-                    upload_resp = client.upload_mission_file(
-                        file_path, target_device, drone_type
-                    )
+                    upload_resp = client.upload_mission_file(file_path, {}, drone_type)
+                    upload_code = str(upload_resp.get("code") or "")
+                    upload_message = str(upload_resp.get("message") or "")
+                    if (
+                        upload_code == "217001"
+                        and "duplicate" in upload_message.lower()
+                    ):
+                        raise RuntimeError(
+                            "FlightHub-Projekt konnte nicht vollständig bereinigt werden "
+                            f"(Namenskollision bei {file_path.name}: {upload_message})."
+                        )
+
                     mission_id = str(
                         upload_resp.get("mission_id")
                         or upload_resp.get("missionId")
@@ -5828,14 +6335,8 @@ class MainWindow(QtWidgets.QMainWindow):
                         or ""
                     ).strip()
                     if mission_id:
-                        assign_resp = client.assign_mission(
-                            mission_id,
-                            target_device,
-                            task_name=Path(file_path).stem,
-                            flight_options=assign_options,
-                        )
                         self.logln(
-                            f"✓ Upload {file_path.name}: mission_id={mission_id}, assign={assign_resp}"
+                            f"✓ Upload {file_path.name}: mission_id={mission_id}"
                         )
                     else:
                         warn_msg = self._txt(
@@ -5850,8 +6351,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self,
                 self._txt("success", "Erfolgreich"),
                 f"{self._txt('upload_done', 'Upload abgeschlossen')}\n\n"
-                f"Dateien: {uploaded_count}\n"
-                f"Ziel: {target_device.get('name', '-')}",
+                f"Dateien: {uploaded_count}",
             )
         except Exception as ex:
             self.status.showMessage(self._txt("upload_failed", "Upload fehlgeschlagen"))

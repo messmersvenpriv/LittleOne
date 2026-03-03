@@ -145,9 +145,10 @@ Hinweis: Für echte Straßenrouten nutzt LittleOne OSRM (Online). Wenn kein Rout
 - **Konvertieren**: erzeugt nur lokale KMZ-Dateien
 - **Konvertieren und Hochladen**:
   1. Dropdown für Zielgerät (passend zum ausgewählten Drohnentyp)
-  2. Konvertierung
-  3. Upload der erzeugten KMZ-Dateien
-  4. Optionales Mission-Assignment (wenn Endpoint konfiguriert)
+  2. Optional: vorhandene Routen im Projekt löschen (bereinigt Altlasten)
+  3. Konvertierung
+  4. Upload der erzeugten KMZ-Dateien
+  5. Optionales Mission-Assignment (wenn Endpoint konfiguriert)
 
 Benötigte Datei: `config/flighthub2.json`  
 Vorlage: `config/flighthub2.json.example`
@@ -162,6 +163,13 @@ Optional (empfohlen):
 
 - `endpoints.devices` für Live-Geräteliste aus API
 - `endpoints.assign` für Mission-Zuweisung nach Upload
+- `endpoints.cleanup_list` für Liste vorhandener Missionen/Routen im Projekt
+- `endpoints.cleanup_delete` für Löschen je Mission (`{mission_id}` Platzhalter)
+
+Upload-Cleanup (optional):
+
+- `upload_cleanup.enabled` (Default: `true`): löscht vor Upload vorhandene Routen im Projekt
+- `upload_cleanup.strict` (Default: `false`): bricht Upload ab, wenn nicht alles gelöscht werden konnte
 
 Credentials (eine Variante):
 
