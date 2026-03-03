@@ -55,35 +55,47 @@ function Sync-PyProjectVersion([string]$Path, [string]$Version) {
     Set-Content -Path $Path -Value $updated -Encoding UTF8
 }
 
-Write-Headline "LittleOne Silent Release"
+try {
+    Write-Headline "LittleOne Silent Release"
 
-$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-Set-Location $repoRoot
+    $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+    Set-Location $repoRoot
+    Write-Info ("RepoRoot: {0}" -f $repoRoot)
 
-$initPath = Join-Path $repoRoot "src\LittleOne\__init__.py"
-$pyprojectPath = Join-Path $repoRoot "pyproject.toml"
-$releaseScript = Join-Path $PSScriptRoot "release_new_version.ps1"
+    $initPath = Join-Path $repoRoot "src\LittleOne\__init__.py"
+    $pyprojectPath = Join-Path $repoRoot "pyproject.toml"
+    $releaseScript = Join-Path $PSScriptRoot "release_new_version.ps1"
 
-if (-not (Test-Path $releaseScript)) {
-    throw "release_new_version.ps1 nicht gefunden: $releaseScript"
+    if (-not (Test-Path $releaseScript)) {
+        throw "release_new_version.ps1 nicht gefunden: $releaseScript"
+    }
+
+    Write-Info "Lese Versionen aus __init__.py und pyproject.toml"
+    $versionInit = Get-VersionFromInit -Path $initPath
+    $versionPyproject = Get-VersionFromPyProject -Path $pyprojectPath
+
+    if ($versionPyproject -ne $versionInit) {
+        Write-Info ("Synchronisiere pyproject.toml: {0} -> {1}" -f $versionPyproject, $versionInit)
+        Sync-PyProjectVersion -Path $pyprojectPath -Version $versionInit
+    } else {
+        Write-Info ("Version bereits synchron: {0}" -f $versionInit)
+    }
+
+    $releaseArgs = @("-NoPrompt")
+    if ($OpenReleaseFolder) {
+        $releaseArgs += "-OpenReleaseFolder"
+    }
+
+    Write-Info "Starte automatischen Release-Flow (Build + Installer + Git + GitHub + Anleitungen)"
+    & powershell -ExecutionPolicy Bypass -File $releaseScript @releaseArgs
+    if ($LASTEXITCODE -ne 0) {
+        throw "release_new_version.ps1 fehlgeschlagen mit ExitCode $LASTEXITCODE"
+    }
+
+    Write-Headline "Silent Release abgeschlossen"
+    exit 0
 }
-
-$versionInit = Get-VersionFromInit -Path $initPath
-$versionPyproject = Get-VersionFromPyProject -Path $pyprojectPath
-
-if ($versionPyproject -ne $versionInit) {
-    Write-Info ("Synchronisiere pyproject.toml: {0} -> {1}" -f $versionPyproject, $versionInit)
-    Sync-PyProjectVersion -Path $pyprojectPath -Version $versionInit
-} else {
-    Write-Info ("Version bereits synchron: {0}" -f $versionInit)
+catch {
+    Write-Host "[ERROR] $($_.Exception.Message)" -ForegroundColor Red
+    exit 1
 }
-
-$releaseArgs = @("-NoPrompt")
-if ($OpenReleaseFolder) {
-    $releaseArgs += "-OpenReleaseFolder"
-}
-
-Write-Info "Starte automatischen Release-Flow (Build + Installer + Git + GitHub + Anleitungen)"
-& powershell -ExecutionPolicy Bypass -File $releaseScript @releaseArgs
-
-Write-Headline "Silent Release abgeschlossen"

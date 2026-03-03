@@ -1,11 +1,11 @@
-[build-system]
+﻿[build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "LittleOne"
-version = "0.2.2"
-description = "KMZ→KML-Formatter (DJI Pilot 2) mit GUI"
+version = "0.2.3"
+description = "KMZâ†’KML-Formatter (DJI Pilot 2) mit GUI"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -17,3 +17,4 @@ dependencies = [
 
 [project.scripts]
 kmz2dji = "LittleOne.cli:app"
+
