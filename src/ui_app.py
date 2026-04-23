@@ -4293,6 +4293,57 @@ class MainWindow(QtWidgets.QMainWindow):
                 }
         return result
 
+    def _build_mapping_line_preview(self, entries):
+        def _num(value, default=0.0):
+            try:
+                return float(value)
+            except Exception:
+                return float(default)
+
+        mapping_line_items = []
+        flight_stats = {
+            "optimization_active": False,
+            "drone": self.drone_combo.currentText(),
+            "altitude_m": 0.0,
+            "overlap_percent": float(self.overlap_spin.value()),
+            "speed_mps": 0.0,
+        }
+
+        metric_values = self._get_metric_values()
+        flight_stats["altitude_m"] = float(metric_values["altitude"])
+        flight_stats["speed_mps"] = float(metric_values["speed"])
+
+        optimizer = optimize_angle_mod
+        optimize_active = self.optimize_direction_check.isChecked()
+        if (
+            optimize_active
+            and optimizer is not None
+            and hasattr(optimizer, "mapping_preview")
+        ):
+            flight_stats["optimization_active"] = True
+            for entry in entries:
+                if entry["key"] in self.excluded_area_keys:
+                    continue
+                preview = optimizer.mapping_preview(
+                    entry["geom"],
+                    altitude_m=float(metric_values["altitude"]),
+                    side_overlap_percent=float(self.overlap_spin.value()),
+                    speed_mps=float(metric_values["speed"]),
+                    drone=self.drone_combo.currentText(),
+                )
+                mapping_line_items.append(
+                    {
+                        "key": entry["key"],
+                        "direction_deg": _num(preview.get("direction_deg", 0.0)),
+                        "distance_m": _num(preview.get("distance_m", 0.0)),
+                        "time_s": _num(preview.get("time_s", 0.0)),
+                        "line_count": _num(preview.get("line_count", 0.0)),
+                        "lines": preview.get("lines_latlon", []),
+                    }
+                )
+
+        return mapping_line_items, flight_stats
+
     def _build_day_plan(
         self,
         entries,
@@ -5323,54 +5374,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 for applicant in applicants
             }
 
-            mapping_line_items = []
-            flight_stats = {
-                "optimization_active": False,
-                "drone": self.drone_combo.currentText(),
-                "altitude_m": 0.0,
-                "overlap_percent": float(self.overlap_spin.value()),
-                "speed_mps": 0.0,
-            }
-
-            metric_values = self._get_metric_values()
-            flight_stats["altitude_m"] = float(metric_values["altitude"])
-            flight_stats["speed_mps"] = float(metric_values["speed"])
-
-            def _num(value, default=0.0):
-                try:
-                    return float(value)
-                except Exception:
-                    return float(default)
+            mapping_line_items, flight_stats = self._build_mapping_line_preview(entries)
 
             optimizer = optimize_angle_mod
             optimize_active = self.optimize_direction_check.isChecked()
-            if (
-                optimize_active
-                and optimizer is not None
-                and hasattr(optimizer, "mapping_preview")
-            ):
-                flight_stats["optimization_active"] = True
-                for entry in entries:
-                    if entry["key"] in self.excluded_area_keys:
-                        continue
-                    preview = optimizer.mapping_preview(
-                        entry["geom"],
-                        altitude_m=float(metric_values["altitude"]),
-                        side_overlap_percent=float(self.overlap_spin.value()),
-                        speed_mps=float(metric_values["speed"]),
-                        drone=self.drone_combo.currentText(),
-                    )
-                    mapping_line_items.append(
-                        {
-                            "key": entry["key"],
-                            "direction_deg": _num(preview.get("direction_deg", 0.0)),
-                            "distance_m": _num(preview.get("distance_m", 0.0)),
-                            "time_s": _num(preview.get("time_s", 0.0)),
-                            "line_count": _num(preview.get("line_count", 0.0)),
-                            "lines": preview.get("lines_latlon", []),
-                        }
-                    )
-
+            if flight_stats.get("optimization_active"):
                 total_distance_m = sum(
                     float(item["distance_m"]) for item in mapping_line_items
                 )
@@ -5819,11 +5827,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 for entry in entries
             ]
 
+            mapping_line_items, flight_stats = self._build_mapping_line_preview(entries)
+
             self.last_map_payload = {
                 "map_items": map_items,
                 "color_map": color_map,
-                "mapping_line_items": [],
-                "flight_stats": {"optimization_active": False},
+                "mapping_line_items": mapping_line_items,
+                "flight_stats": flight_stats,
                 "day_plan": day_plan,
                 "selected_start_area_key": self.selected_start_area_key,
                 "default_center": self.default_map_center,
@@ -6172,11 +6182,17 @@ class MainWindow(QtWidgets.QMainWindow):
             self.progress.setValue(100)
 
             written_files = []
+            stem_counts = {}
             for idx in range(written):
                 if idx < len(names):
-                    stem = self._sanitize_output_name(names[idx])
+                    base_stem = self._sanitize_output_name(names[idx])
                 else:
-                    stem = self._sanitize_output_name(f"{basename}-{idx + 1:03d}")
+                    base_stem = self._sanitize_output_name(f"{basename}-{idx + 1:03d}")
+                count_for_stem = int(stem_counts.get(base_stem, 0)) + 1
+                stem_counts[base_stem] = count_for_stem
+                stem = (
+                    base_stem if count_for_stem == 1 else f"{base_stem}-{count_for_stem}"
+                )
                 written_files.append(out_dir / f"{stem}.kmz")
 
             self.logln("─" * 60)

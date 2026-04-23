@@ -46,6 +46,31 @@ def _sanitize_filename(name: str) -> str:
     return cleaned or "area"
 
 
+def _build_output_stems(
+    total_count: int,
+    base_name: str,
+    names: Optional[Sequence[str]] = None,
+) -> list[str]:
+    stems: list[str] = []
+    counters: dict[str, int] = {}
+
+    for i in range(total_count):
+        if names and i < len(names) and names[i]:
+            base_stem = _sanitize_filename(names[i])
+        else:
+            base_stem = _sanitize_filename(f"{base_name}-{i + 1:03d}")
+
+        occurrence = counters.get(base_stem, 0) + 1
+        counters[base_stem] = occurrence
+
+        if occurrence == 1:
+            stems.append(base_stem)
+        else:
+            stems.append(f"{base_stem}-{occurrence}")
+
+    return stems
+
+
 def _drone_profile(drone: str) -> dict:
     key = (drone or "").strip().upper()
     if key == "M4T":
@@ -481,13 +506,11 @@ def write_polygons_to_kmls(
 ) -> int:
     poly_list = list(polys)
     Path(out_dir).mkdir(parents=True, exist_ok=True)
+    file_stems = _build_output_stems(len(poly_list), base_name, names)
 
     count = 0
     for i, poly in enumerate(poly_list, start=1):
-        if names and i - 1 < len(names) and names[i - 1]:
-            file_stem = _sanitize_filename(names[i - 1])
-        else:
-            file_stem = _sanitize_filename(f"{base_name}-{i:03d}")
+        file_stem = file_stems[i - 1]
         out_file = Path(out_dir) / f"{file_stem}.kml"
         item_options = dict(options or {})
         if directions and i - 1 < len(directions):
@@ -515,13 +538,11 @@ def write_polygons_to_kmzs(
     poly_list = list(polys)
     out_path = Path(out_dir)
     out_path.mkdir(parents=True, exist_ok=True)
+    file_stems = _build_output_stems(len(poly_list), base_name, names)
 
     count = 0
     for i, poly in enumerate(poly_list, start=1):
-        if names and i - 1 < len(names) and names[i - 1]:
-            file_stem = _sanitize_filename(names[i - 1])
-        else:
-            file_stem = _sanitize_filename(f"{base_name}-{i:03d}")
+        file_stem = file_stems[i - 1]
 
         item_options = dict(options or {})
         if directions and i - 1 < len(directions):
