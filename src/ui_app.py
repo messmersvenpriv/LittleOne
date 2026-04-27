@@ -28,6 +28,7 @@ import urllib.parse
 import tempfile
 import socket
 import uuid
+import zipfile
 
 ENGINE_IMPORT_ERROR = None
 optimize_angle_mod = None
@@ -79,7 +80,7 @@ LANGUAGES = {
         "about": "Über",
         "documentation": "Dokumentation",
         "exit": "Beenden",
-        "kmz_file": "KMZ/KML-Datei",
+        "kmz_file": "KMZ-Datei",
         "output_dir": "Ausgabeordner",
         "altitude": "Flughöhe",
         "altitude_unit": "m",
@@ -113,8 +114,9 @@ LANGUAGES = {
         "ready": "Bereit.",
         "converting": "Konvertiere …",
         "done": "Fertig.",
-        "select_kmz": "Bitte KMZ oder KML auswählen.",
-        "select_kmz_empty": "Bitte wählen Sie zuerst eine KMZ/KML-Datei aus.",
+        "select_kmz": "Bitte KMZ auswählen.",
+        "select_kmz_empty": "Bitte wählen Sie zuerst eine KMZ-Datei aus.",
+        "select_kmz_only": "Bitte wählen Sie eine KMZ-Datei (*.kmz) aus. KML-Dateien werden hier nicht unterstützt.",
         "file_not_found": "Die angegebene Datei existiert nicht:",
         "import_error": "Engine-Importfehler",
         "success": "Erfolgreich",
@@ -272,6 +274,10 @@ LANGUAGES = {
         "convert_debug_kml": "Debug-KMLs: {path}",
         "convert_success_text": "✓ Erfolgreich: {count} KMZ-Dateien\n\nAusgabe:\n{out_dir}\n\nDebug-KMLs:\n{debug_dir}",
         "convert_combined_suffix": "\n\nZusätzliche Sammel-KMZ:\n{name}",
+        "kmz_wrong_file_title": "Falsche KMZ-Datei",
+        "kmz_dji_export_msg": "Diese KMZ-Datei wurde von dieser App exportiert und kann hier nicht als Eingabe verwendet werden.\n\nBitte wählen Sie nur KMZ-Dateien aus, die aus Survey 123 exportiert wurden.",
+        "convert_no_polygons_survey123": "In der Datei wurden keine verwertbaren Flächen gefunden.\n\nBitte stellen Sie sicher, dass Sie eine KMZ-Datei verwenden, die aus Survey 123 exportiert wurde – keine Dateien, die von dieser App oder einer anderen Quelle exportiert wurden.",
+        "convert_error_survey123_hint": "Bitte prüfen Sie, ob die gewählte KMZ-Datei aus Survey 123 exportiert wurde. Dateien, die von dieser App oder einem anderen Programm exportiert wurden, können nicht eingelesen werden.",
         "convert_error_log": "❌ FEHLER:",
         "engine_unknown_import_error": "Unbekannter Importfehler",
         "engine_import_log": "Engine-Importfehler: {error}",
@@ -288,7 +294,7 @@ LANGUAGES = {
         "about": "About",
         "documentation": "Documentation",
         "exit": "Exit",
-        "kmz_file": "KMZ/KML File",
+        "kmz_file": "KMZ File",
         "output_dir": "Output Folder",
         "altitude": "Altitude",
         "altitude_unit": "m",
@@ -322,8 +328,9 @@ LANGUAGES = {
         "ready": "Ready.",
         "converting": "Converting …",
         "done": "Done.",
-        "select_kmz": "Please select KMZ or KML.",
-        "select_kmz_empty": "Please select a KMZ/KML file first.",
+        "select_kmz": "Please select a KMZ file.",
+        "select_kmz_empty": "Please select a KMZ file first.",
+        "select_kmz_only": "Please select a KMZ file (*.kmz). KML files are not supported here.",
         "file_not_found": "The specified file does not exist:",
         "import_error": "Import Error",
         "success": "Success",
@@ -481,6 +488,10 @@ LANGUAGES = {
         "convert_debug_kml": "Debug KMLs: {path}",
         "convert_success_text": "✓ Success: {count} KMZ files\n\nOutput:\n{out_dir}\n\nDebug KMLs:\n{debug_dir}",
         "convert_combined_suffix": "\n\nAdditional combined KMZ:\n{name}",
+        "kmz_wrong_file_title": "Wrong KMZ file",
+        "kmz_dji_export_msg": "This KMZ file was exported by this app and cannot be used as input here.\n\nPlease select only KMZ files that were exported from Survey 123.",
+        "convert_no_polygons_survey123": "No usable areas were found in the file.\n\nPlease make sure you are using a KMZ file exported from Survey 123 – not files exported by this app or any other source.",
+        "convert_error_survey123_hint": "Please check that the selected KMZ file was exported from Survey 123. Files exported by this app or another program cannot be read as input.",
         "convert_error_log": "❌ ERROR:",
         "engine_unknown_import_error": "Unknown import error",
         "engine_import_log": "Engine import error: {error}",
@@ -497,7 +508,7 @@ LANGUAGES = {
         "about": "À propos",
         "documentation": "Documentation",
         "exit": "Quitter",
-        "kmz_file": "Fichier KMZ/KML",
+        "kmz_file": "Fichier KMZ",
         "output_dir": "Dossier de sortie",
         "altitude": "Altitude",
         "altitude_unit": "m",
@@ -520,8 +531,9 @@ LANGUAGES = {
         "ready": "Prêt.",
         "converting": "Conversion …",
         "done": "Terminé.",
-        "select_kmz": "Veuillez sélectionner un KMZ ou KML.",
-        "select_kmz_empty": "Veuillez d'abord sélectionner un fichier KMZ/KML.",
+        "select_kmz": "Veuillez sélectionner un fichier KMZ.",
+        "select_kmz_empty": "Veuillez d'abord sélectionner un fichier KMZ.",
+        "select_kmz_only": "Veuillez sélectionner un fichier KMZ (*.kmz). Les fichiers KML ne sont pas pris en charge ici.",
         "file_not_found": "Le fichier spécifié n'existe pas:",
         "import_error": "Erreur d'importation",
         "success": "Succès",
@@ -567,6 +579,10 @@ LANGUAGES = {
         "toilet_tip": "Rouleau de papier toilette",
         "toilet_title": "🧻",
         "toilet_message": "Tu t'attendais à quoi, exactement ?\nOn continue !",
+        "kmz_wrong_file_title": "Mauvais fichier KMZ",
+        "kmz_dji_export_msg": "Ce fichier KMZ a été exporté par cette application et ne peut pas être utilisé comme entrée ici.\n\nVeuillez sélectionner uniquement des fichiers KMZ exportés depuis Survey 123.",
+        "convert_no_polygons_survey123": "Aucune zone utilisable n'a été trouvée dans le fichier.\n\nVeuillez vous assurer d'utiliser un fichier KMZ exporté depuis Survey 123 – pas des fichiers exportés par cette application ou une autre source.",
+        "convert_error_survey123_hint": "Veuillez vérifier que le fichier KMZ sélectionné a été exporté depuis Survey 123. Les fichiers exportés par cette application ou un autre programme ne peuvent pas être lus.",
         "settings_title": "Paramètres",
         "theme": "Thème",
         "language": "Langue",
@@ -582,7 +598,7 @@ LANGUAGES = {
         "about": "Tietoa",
         "documentation": "Dokumentaatio",
         "exit": "Poistu",
-        "kmz_file": "KMZ/KML-tiedosto",
+        "kmz_file": "KMZ-tiedosto",
         "output_dir": "Tulostuskansio",
         "altitude": "Korkeus",
         "altitude_unit": "m",
@@ -605,8 +621,9 @@ LANGUAGES = {
         "ready": "Valmis.",
         "converting": "Muunnetaan …",
         "done": "Valmis.",
-        "select_kmz": "Valitse KMZ tai KML.",
-        "select_kmz_empty": "Valitse ensin KMZ/KML-tiedosto.",
+        "select_kmz": "Valitse KMZ-tiedosto.",
+        "select_kmz_empty": "Valitse ensin KMZ-tiedosto.",
+        "select_kmz_only": "Valitse KMZ-tiedosto (*.kmz). KML-tiedostoja ei tueta tässä.",
         "file_not_found": "Määritettyä tiedostoa ei ole olemassa:",
         "import_error": "Tuontivirhe",
         "success": "Onnistui",
@@ -652,6 +669,10 @@ LANGUAGES = {
         "toilet_tip": "Vessapaperirulla",
         "toilet_title": "🧻",
         "toilet_message": "Mitä oikein odotit tapahtuvan?\nJatketaan!",
+        "kmz_wrong_file_title": "Väärä KMZ-tiedosto",
+        "kmz_dji_export_msg": "Tämä KMZ-tiedosto on viety tästä sovelluksesta eikä sitä voi käyttää syötteenä tässä.\n\nValitse vain Survey 123:sta viedyt KMZ-tiedostot.",
+        "convert_no_polygons_survey123": "Tiedostosta ei löytynyt käyttökelpoisia alueita.\n\nVarmista, että käytät Survey 123:sta vietyä KMZ-tiedostoa – ei tästä sovelluksesta tai muusta lähteestä vietyjä tiedostoja.",
+        "convert_error_survey123_hint": "Tarkista, että valittu KMZ-tiedosto on viety Survey 123:sta. Tästä sovelluksesta tai muusta ohjelmasta vietyjä tiedostoja ei voi lukea syötteenä.",
         "settings_title": "Asetukset",
         "theme": "Teema",
         "language": "Kieli",
@@ -2378,9 +2399,36 @@ class MainWindow(QtWidgets.QMainWindow):
         downloads = QtCore.QStandardPaths.writableLocation(
             QtCore.QStandardPaths.StandardLocation.DownloadLocation
         )
-        if downloads:
-            return str(Path(downloads))
-        return str(Path.home() / "Downloads")
+        default_dir = Path(downloads) if downloads else Path.home() / "Downloads"
+        try:
+            default_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        return str(default_dir)
+
+    def _normalize_output_dir(self, output_dir: str | Path | None) -> str:
+        fallback = self._default_output_dir()
+        raw_value = str(output_dir or "").strip()
+        if not raw_value:
+            return fallback
+
+        try:
+            candidate = Path(raw_value).expanduser()
+        except Exception:
+            return fallback
+
+        try:
+            anchor = candidate.anchor.strip()
+            if anchor and not Path(anchor).exists():
+                return fallback
+            if candidate.exists():
+                return str(candidate) if candidate.is_dir() else fallback
+            parent = candidate.parent
+            if parent == candidate or not parent.exists() or not parent.is_dir():
+                return fallback
+            return str(candidate)
+        except Exception:
+            return fallback
 
     def _remember_output_dir(self, output_dir: str):
         out_dir = str(output_dir or "").strip()
@@ -2543,9 +2591,7 @@ class MainWindow(QtWidgets.QMainWindow):
             )
         )
 
-        out_dir = (
-            str(defaults.get("output_dir", "")).strip() or self._default_output_dir()
-        )
+        out_dir = self._normalize_output_dir(defaults.get("output_dir", ""))
         self.out_edit.setText(out_dir)
 
         self.kmz_edit.clear()
@@ -2597,8 +2643,8 @@ class MainWindow(QtWidgets.QMainWindow):
             "theme": self.theme,
             "language": self.language,
             "units": self.units,
-            "last_output_dir": str(
-                merged_defaults.get("output_dir") or self._default_output_dir()
+            "last_output_dir": self._normalize_output_dir(
+                merged_defaults.get("output_dir")
             ),
             "defaults": merged_defaults,
         }
@@ -3559,7 +3605,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def pick_kmz(self):
         dlg = QtWidgets.QFileDialog(self)
-        dlg.setNameFilters(["KMZ (*.kmz)", "KML (*.kml)", "All Files (*.*)"])
+        dlg.setFileMode(QtWidgets.QFileDialog.FileMode.ExistingFile)
+        dlg.setNameFilters(["KMZ-Dateien (*.kmz)"])
+        dlg.selectNameFilter("KMZ-Dateien (*.kmz)")
         if dlg.exec():
             self.kmz_edit.setText(dlg.selectedFiles()[0])
             self.excluded_area_keys.clear()
@@ -3569,7 +3617,7 @@ class MainWindow(QtWidgets.QMainWindow):
         dir_ = QtWidgets.QFileDialog.getExistingDirectory(
             self,
             self._txt("pick_output_dir", "Select output folder"),
-            str(Path(self.out_edit.text().strip() or self._default_output_dir())),
+            self._normalize_output_dir(self.out_edit.text()),
         )
         if dir_:
             self.out_edit.setText(dir_)
@@ -3585,13 +3633,25 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.warning(
                 self,
                 self.strings.get("error", "Fehler"),
-                self.strings.get(
-                    "select_kmz_empty", "Bitte wählen Sie eine KMZ/KML-Datei aus"
+                self._txt(
+                    "select_kmz_empty", "Bitte wählen Sie eine KMZ-Datei aus"
                 ),
             )
             return None
 
         kmz_path = Path(kmz_path_str)
+        if kmz_path.suffix.lower() != ".kmz":
+            message = self._txt(
+                "select_kmz_only",
+                "Bitte wählen Sie eine KMZ-Datei (*.kmz) aus. KML-Dateien werden hier nicht unterstützt.",
+            )
+            self.logln(message)
+            QtWidgets.QMessageBox.warning(
+                self,
+                self.strings.get("error", "Fehler"),
+                message,
+            )
+            return None
         if not kmz_path.exists():
             QtWidgets.QMessageBox.warning(
                 self,
@@ -3602,6 +3662,25 @@ class MainWindow(QtWidgets.QMainWindow):
                 ),
             )
             return None
+
+        try:
+            with zipfile.ZipFile(kmz_path, "r") as _zf:
+                _names_lower = {n.lower() for n in _zf.namelist()}
+            if "wpmz/waylines.wpml" in _names_lower:
+                message = self._txt(
+                    "kmz_dji_export_msg",
+                    "Diese KMZ-Datei wurde von dieser App exportiert und kann hier nicht als Eingabe verwendet werden.\n\nBitte wählen Sie nur KMZ-Dateien aus, die aus Survey 123 exportiert wurden.",
+                )
+                self.logln("⚠ " + message)
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    self._txt("kmz_wrong_file_title", "Falsche KMZ-Datei"),
+                    message,
+                )
+                return None
+        except Exception:
+            pass
+
         return kmz_path
 
     def _to_leaflet_rings(self, polygon):
@@ -5106,7 +5185,8 @@ class MainWindow(QtWidgets.QMainWindow):
 """
 
     def _map_output_dir(self) -> Path:
-        out_dir = Path(self.out_edit.text().strip() or (Path.cwd() / "out"))
+        out_dir = Path(self._normalize_output_dir(self.out_edit.text()))
+        self.out_edit.setText(str(out_dir))
         out_dir.mkdir(parents=True, exist_ok=True)
         return out_dir
 
@@ -5993,9 +6073,13 @@ class MainWindow(QtWidgets.QMainWindow):
         if kmz_path is None:
             return None
 
-        out_dir = (
-            Path(output_dir) if output_dir is not None else Path(self.out_edit.text())
+        out_dir = Path(
+            self._normalize_output_dir(
+                output_dir if output_dir is not None else self.out_edit.text()
+            )
         )
+        if output_dir is None:
+            self.out_edit.setText(str(out_dir))
         basename = "area"
 
         if persist_output_dir:
@@ -6146,8 +6230,18 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.logln(self._txt("convert_excluded").format(count=skipped))
 
             if not polys:
+                msg = self._txt(
+                    "convert_no_polygons_survey123",
+                    "In der Datei wurden keine verwertbaren Flächen gefunden.\n\nBitte stellen Sie sicher, dass Sie eine KMZ-Datei aus Survey 123 verwenden.",
+                )
                 self.logln(self._txt("convert_no_polygons_log"))
+                self.logln("⚠ " + msg)
                 self.status.showMessage(self._txt("convert_no_polygons_status"))
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    self._txt("kmz_wrong_file_title", "Falsche KMZ-Datei"),
+                    msg,
+                )
                 return None
 
             self.logln(self._txt("convert_polygons_extracted").format(count=len(polys)))
@@ -6233,7 +6327,15 @@ class MainWindow(QtWidgets.QMainWindow):
             self.logln(self._txt("convert_error_log"))
             self.logln(tb)
             self.status.showMessage(self.strings["error"])
-            QtWidgets.QMessageBox.critical(self, self.strings["error"], str(ex))
+            hint = self._txt(
+                "convert_error_survey123_hint",
+                "Bitte prüfen Sie, ob die gewählte KMZ-Datei aus Survey 123 exportiert wurde.",
+            )
+            QtWidgets.QMessageBox.critical(
+                self,
+                self.strings["error"],
+                f"{ex}\n\n{hint}",
+            )
 
     def convert_and_upload(self):
         try:
