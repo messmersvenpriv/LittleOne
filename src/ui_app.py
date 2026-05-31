@@ -1837,6 +1837,14 @@ class MapBridge(QtCore.QObject):
     def setStartArea(self, area_key: str):
         self.window.set_start_area(area_key)
 
+    @QtCore.Slot(str)
+    def createAreaGroup(self, area_keys_json: str):
+        self.window.create_area_group(area_keys_json)
+
+    @QtCore.Slot(str)
+    def dissolveAreaGroup(self, group_id: str):
+        self.window.dissolve_area_group(group_id)
+
 
 class MainWindow(QtWidgets.QMainWindow):
     def _resource_path(self, relative_path: str) -> Path:
@@ -1985,6 +1993,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.default_map_zoom = 11
         self.excluded_area_keys = set()
         self.selected_start_area_key = None
+        self.area_groups = []
+        self._next_group_number = 1
         self._startup_offline_hint_shown = False
         self.current_map_html_path = None
         self.last_map_payload = None
@@ -2597,6 +2607,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.kmz_edit.clear()
         self.excluded_area_keys.clear()
         self.selected_start_area_key = None
+        self.area_groups = []
+        self._next_group_number = 1
 
     def _load_user_defaults(self):
         path = self._user_defaults_path()
@@ -3612,6 +3624,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.kmz_edit.setText(dlg.selectedFiles()[0])
             self.excluded_area_keys.clear()
             self.selected_start_area_key = None
+            self.area_groups = []
+            self._next_group_number = 1
 
     def pick_out(self):
         dir_ = QtWidgets.QFileDialog.getExistingDirectory(
@@ -3751,6 +3765,8 @@ class MainWindow(QtWidgets.QMainWindow):
         entries = self._collect_geometry_entries(features, summaries)
         current_keys = {entry["key"] for entry in entries}
         self.excluded_area_keys.intersection_update(current_keys)
+        self._sync_area_groups(current_keys)
+        group_lookup = self._group_lookup_by_area()
         return [
             {
                 "applicant": entry["applicant"],
@@ -3759,6 +3775,21 @@ class MainWindow(QtWidgets.QMainWindow):
                 "key": entry["key"],
                 "excluded": entry["key"] in self.excluded_area_keys,
                 "center": entry.get("center"),
+                "group_id": (
+                    (group_lookup.get(entry["key"]) or {}).get("id")
+                    if group_lookup.get(entry["key"])
+                    else None
+                ),
+                "group_name": (
+                    (group_lookup.get(entry["key"]) or {}).get("name")
+                    if group_lookup.get(entry["key"])
+                    else None
+                ),
+                "group_mode": (
+                    (group_lookup.get(entry["key"]) or {}).get("mode")
+                    if group_lookup.get(entry["key"])
+                    else None
+                ),
             }
             for entry in entries
         ]
@@ -4589,6 +4620,112 @@ class MainWindow(QtWidgets.QMainWindow):
         self.selected_start_area_key = area_key
         self.logln(self._txt("map_start_set_log").format(key=area_key))
 
+    def _group_lookup_by_area(self) -> dict:
+        lookup = {}
+        for group in self.area_groups:
+            group_id = str(group.get("id") or "").strip()
+            if not group_id:
+                continue
+            for key in group.get("keys", []):
+                area_key = str(key or "").strip()
+                if area_key:
+                    lookup[area_key] = group
+        return lookup
+
+    def _sync_area_groups(self, current_keys):
+        valid_keys = {str(k or "").strip() for k in current_keys if str(k or "").strip()}
+        cleaned_groups = []
+        highest_number = 0
+        for group in self.area_groups:
+            group_id = str(group.get("id") or "").strip()
+            if not group_id:
+                continue
+            m = re.search(r"(\d+)$", group_id)
+            if m:
+                highest_number = max(highest_number, int(m.group(1)))
+
+            raw_keys = group.get("keys", [])
+            keys = []
+            seen = set()
+            for key in raw_keys:
+                area_key = str(key or "").strip()
+                if area_key and area_key in valid_keys and area_key not in seen:
+                    seen.add(area_key)
+                    keys.append(area_key)
+            if not keys:
+                continue
+
+            cleaned_groups.append(
+                {
+                    "id": group_id,
+                    "name": str(group.get("name") or group_id),
+                    "mode": str(group.get("mode") or "hull"),
+                    "keys": keys,
+                }
+            )
+
+        self.area_groups = cleaned_groups
+        self._next_group_number = max(self._next_group_number, highest_number + 1)
+
+    def create_area_group(self, area_keys_json: str):
+        try:
+            parsed = json.loads(str(area_keys_json or "[]"))
+        except Exception:
+            parsed = []
+
+        mode = "hull"
+        if isinstance(parsed, dict):
+            mode = str(parsed.get("mode") or "hull").strip().lower()
+            parsed_keys = parsed.get("keys")
+            parsed = parsed_keys if isinstance(parsed_keys, list) else []
+        if not isinstance(parsed, list):
+            return
+        if mode not in {"hull", "bridge"}:
+            mode = "hull"
+
+        selected = []
+        seen = set()
+        for item in parsed:
+            key = str(item or "").strip()
+            if key and key not in seen:
+                seen.add(key)
+                selected.append(key)
+        if not selected:
+            return
+
+        # A polygon can only belong to one group; move it to the new one.
+        for group in self.area_groups:
+            group["keys"] = [k for k in group.get("keys", []) if k not in seen]
+        self.area_groups = [g for g in self.area_groups if g.get("keys")]
+
+        group_id = f"g{self._next_group_number:03d}"
+        group_name = f"Gruppe {self._next_group_number}"
+        self._next_group_number += 1
+        self.area_groups.append(
+            {"id": group_id, "name": group_name, "mode": mode, "keys": selected}
+        )
+        mode_text = "schmale Verbindungen" if mode == "bridge" else "Hull"
+        self.logln(
+            f"✓ Gruppe erstellt: {group_name} ({len(selected)} Flächen, Modus: {mode_text})"
+        )
+
+    def dissolve_area_group(self, group_id: str):
+        group_id = str(group_id or "").strip()
+        if not group_id:
+            return
+
+        kept = []
+        removed = None
+        for group in self.area_groups:
+            if str(group.get("id") or "").strip() == group_id:
+                removed = group
+            else:
+                kept.append(group)
+        self.area_groups = kept
+        if removed is not None:
+            group_name = str(removed.get("name") or group_id)
+            self.logln(f"ℹ Gruppe aufgeloest: {group_name}")
+
     def toggle_area_exclusion(self, area_key: str):
         if area_key in self.excluded_area_keys:
             self.excluded_area_keys.remove(area_key)
@@ -4657,6 +4794,44 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         start_replace_label = json.dumps(
             self._txt("map_set_new_start_area", "Set this area as new start point"),
+            ensure_ascii=False,
+        )
+        group_mode_label = json.dumps(
+            self._txt("map_group_mode", "Gruppieren"),
+            ensure_ascii=False,
+        )
+        group_mode_active_label = json.dumps(
+            self._txt("map_group_mode_active", "Gruppieren aktiv"),
+            ensure_ascii=False,
+        )
+        group_finish_label = json.dumps(
+            self._txt("map_group_finish", "Gruppierung abschliessen"),
+            ensure_ascii=False,
+        )
+        group_finish_bridge_label = json.dumps(
+            self._txt(
+                "map_group_finish_bridge",
+                "Gruppierung abschliessen (schmale Verbindungen)",
+            ),
+            ensure_ascii=False,
+        )
+        group_unselect_label = json.dumps(
+            self._txt("map_group_unselect", "Flaeche aus Auswahl entfernen"),
+            ensure_ascii=False,
+        )
+        group_dissolve_label = json.dumps(
+            self._txt("map_group_dissolve", "Gruppierung aufloesen"),
+            ensure_ascii=False,
+        )
+        group_dissolve_confirm = json.dumps(
+            self._txt(
+                "map_group_dissolve_confirm",
+                "Diese Gruppierung wirklich aufloesen?",
+            ),
+            ensure_ascii=False,
+        )
+        group_badge_prefix = json.dumps(
+            self._txt("map_group_badge", "Gruppe"),
             ensure_ascii=False,
         )
         start_key_json = json.dumps(selected_start_area_key, ensure_ascii=False)
@@ -4746,6 +4921,44 @@ class MainWindow(QtWidgets.QMainWindow):
         #controls .row {{ margin-bottom: 6px; }}
         #controls .stats {{ color: #222; }}
         #controls .muted {{ color: #666; }}
+        #group-mode-btn {{
+            width: 100%;
+            padding: 6px 10px;
+            border: 1px solid #1b5e20;
+            border-radius: 4px;
+            background: #f1f8e9;
+            color: #1b5e20;
+            font-weight: 600;
+            cursor: pointer;
+        }}
+        #group-mode-btn.active {{
+            background: #1b5e20;
+            color: #fff;
+        }}
+        #map-context-menu {{
+            position: absolute;
+            z-index: 1200;
+            display: none;
+            min-width: 220px;
+            background: #fff;
+            border: 1px solid #cfcfcf;
+            border-radius: 6px;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            overflow: hidden;
+        }}
+        #map-context-menu button {{
+            display: block;
+            width: 100%;
+            border: 0;
+            background: #fff;
+            text-align: left;
+            padding: 8px 10px;
+            cursor: pointer;
+        }}
+        #map-context-menu button:hover {{ background: #f0f0f0; }}
+        #map-context-menu button.danger {{ color: #b71c1c; font-weight: 600; }}
     .legend-item {{ display: flex; align-items: center; margin-bottom: 4px; }}
     .swatch {{ width: 14px; height: 14px; border-radius: 2px; margin-right: 6px; border: 1px solid #444; }}
   </style>
@@ -4759,17 +4972,27 @@ class MainWindow(QtWidgets.QMainWindow):
                 <input id="toggle-lines" type="checkbox" /> {self.strings.get("map_controls_toggle", "Linien anzeigen")}
             </label>
         </div>
+        <div class="row">
+            <button id="group-mode-btn" type="button">{self._txt("map_group_mode", "Gruppieren")}</button>
+        </div>
         <div id="flight-stats" class="stats"></div>
     </div>
   <div id=\"legend\"></div>
+  <div id="map-context-menu"></div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
     <script src=\"qrc:///qtwebchannel/qwebchannel.js\"></script>
     <script>
         if (typeof window.L === 'undefined') {{
             const s = document.createElement('script');
             s.src = 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js';
             document.head.appendChild(s);
+        }}
+        if (typeof window.turf === 'undefined') {{
+            const t = document.createElement('script');
+            t.src = 'https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js';
+            document.head.appendChild(t);
         }}
     </script>
   <script>
@@ -4786,6 +5009,14 @@ class MainWindow(QtWidgets.QMainWindow):
         const setStartLabel = {start_label};
         const selectedStartLabel = {start_selected_label};
         const setNewStartLabel = {start_replace_label};
+        const groupModeLabel = {group_mode_label};
+        const groupModeActiveLabel = {group_mode_active_label};
+        const groupFinishLabel = {group_finish_label};
+        const groupFinishBridgeLabel = {group_finish_bridge_label};
+        const groupUnselectLabel = {group_unselect_label};
+        const groupDissolveLabel = {group_dissolve_label};
+        const groupDissolveConfirm = {group_dissolve_confirm};
+        const groupBadgePrefix = {group_badge_prefix};
         let selectedStartKey = {start_key_json};
         const optDisabledText = {opt_disabled_json};
         const statsActiveText = {stats_active_json};
@@ -4838,16 +5069,70 @@ class MainWindow(QtWidgets.QMainWindow):
             }}
 
             const toggleLines = document.getElementById('toggle-lines');
+            const groupModeBtn = document.getElementById('group-mode-btn');
             const statsNode = document.getElementById('flight-stats');
+            const contextMenu = document.getElementById('map-context-menu');
             const optimizationActive = !!flightStatsSeed.optimization_active;
             const hasLines = lineItems.length > 0;
             const defaultShowLines = optimizationActive && hasLines;
             let showLines = defaultShowLines;
+            let groupMode = false;
+            let lassoDrawing = false;
+            let lassoPoints = [];
+            let lassoLine = null;
+            const pendingGroupKeys = new Set();
+            const groupsById = new Map();
+            const groupByAreaKey = new Map();
+            const groupColorPalette = [
+                '#1b5e20', '#00695c', '#0d47a1', '#4a148c', '#e65100', '#6d4c41', '#263238'
+            ];
 
             if (toggleLines) {{
                 toggleLines.checked = defaultShowLines;
                 toggleLines.disabled = !hasLines;
             }}
+
+            if (groupModeBtn) {{
+                groupModeBtn.textContent = groupModeLabel;
+            }}
+
+            function hashString(text) {{
+                let h = 0;
+                const t = String(text || '');
+                for (let i = 0; i < t.length; i += 1) {{
+                    h = ((h << 5) - h) + t.charCodeAt(i);
+                    h |= 0;
+                }}
+                return Math.abs(h);
+            }}
+
+            function groupColor(groupId) {{
+                return groupColorPalette[hashString(groupId) % groupColorPalette.length];
+            }}
+
+            function ensureGroupFromFeature(feature) {{
+                const gid = String(feature.group_id || '').trim();
+                if (!gid) return;
+                const gname = String(feature.group_name || (groupBadgePrefix + ' ' + gid)).trim();
+                const gmode = String(feature.group_mode || 'hull').trim().toLowerCase();
+                if (!groupsById.has(gid)) {{
+                    groupsById.set(gid, {{ id: gid, name: gname, mode: gmode, keys: new Set() }});
+                }}
+                const g = groupsById.get(gid);
+                g.mode = gmode;
+                g.keys.add(feature.key);
+                groupByAreaKey.set(feature.key, g);
+            }}
+
+            function syncGroupsFromFeatures() {{
+                groupsById.clear();
+                groupByAreaKey.clear();
+                for (const feature of features) {{
+                    ensureGroupFromFeature(feature);
+                }}
+            }}
+
+            syncGroupsFromFeatures();
 
             function formatStats() {{
                 if (!optimizationActive) {{
@@ -4889,13 +5174,31 @@ class MainWindow(QtWidgets.QMainWindow):
             }}
 
             function setLayerStyle(layer, key, baseColor) {{
-                if (excluded.has(key)) {{
+                if (pendingGroupKeys.has(key)) {{
+                    layer.setStyle({{
+                        color: '#f9a825',
+                        fillColor: '#fbc02d',
+                        fillOpacity: 0.55,
+                        weight: 3,
+                        dashArray: '4,3'
+                    }});
+                }} else if (excluded.has(key)) {{
                     layer.setStyle({{
                         color: '#888888',
                         fillColor: '#9e9e9e',
                         fillOpacity: 0.2,
                         weight: 2,
                         dashArray: '6,4'
+                    }});
+                }} else if (groupByAreaKey.has(key)) {{
+                    const group = groupByAreaKey.get(key);
+                    const gcol = groupColor(group.id);
+                    layer.setStyle({{
+                        color: gcol,
+                        fillColor: baseColor,
+                        fillOpacity: 0.48,
+                        weight: 4,
+                        dashArray: null
                     }});
                 }} else {{
                     layer.setStyle({{
@@ -4945,6 +5248,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 const isExcluded = excluded.has(feature.key);
                 const actionLabel = isExcluded ? addLabel : removeLabel;
                 const actionColor = isExcluded ? '#2e7d32' : '#b71c1c';
+                const group = groupByAreaKey.get(feature.key);
                 const isStart = selectedStartKey && selectedStartKey === feature.key;
                 const hasOtherStart = !!selectedStartKey && !isStart;
                 const startButtonLabel = isStart
@@ -4992,6 +5296,10 @@ class MainWindow(QtWidgets.QMainWindow):
                         ' = ' + escapeHtml((kitzTotalCalcMin || kitzMin).toFixed(1)) + ' min<br>' +
                         '<b>Bearbeitung gesamt: ' + escapeHtml(totalMin.toFixed(1)) + ' min</b>'
                     );
+                }}
+
+                if (group) {{
+                    infoBlocks.push('<b>' + escapeHtml(groupBadgePrefix) + ':</b> ' + escapeHtml(group.name));
                 }}
 
                 const extraInfo = infoBlocks.length > 0 ? '<br><br>' + infoBlocks.join('<br><br>') : '';
@@ -5055,7 +5363,257 @@ class MainWindow(QtWidgets.QMainWindow):
                 }}
             }}
 
+            function refreshPopupContents() {{
+                for (const [k, lyr] of layersByKey.entries()) {{
+                    const feat = featureByKey.get(k);
+                    if (!feat) continue;
+                    lyr.setPopupContent(popupHtml(feat));
+                }}
+            }}
+
+            function refreshAllLayerStyles() {{
+                for (const [k, lyr] of layersByKey.entries()) {{
+                    const feat = featureByKey.get(k);
+                    if (!feat) continue;
+                    setLayerStyle(lyr, k, colors[feat.applicant] || '#ff0000');
+                }}
+            }}
+
+            function updateLegend() {{
+                const legend = document.getElementById('legend');
+                legend.innerHTML = '';
+
+                const titleApplicants = document.createElement('div');
+                titleApplicants.style.marginBottom = '6px';
+                titleApplicants.innerHTML = '<b>Antragsteller</b>';
+                legend.appendChild(titleApplicants);
+
+                for (const [applicant, color] of Object.entries(colors).sort((a, b) => a[0].localeCompare(b[0], 'de'))) {{
+                    const row = document.createElement('div');
+                    row.className = 'legend-item';
+                    row.innerHTML = '<span class="swatch" style="background:' + color + '"></span>' + escapeHtml(applicant);
+                    legend.appendChild(row);
+                }}
+
+                if (groupsById.size > 0) {{
+                    const separator = document.createElement('div');
+                    separator.style.margin = '8px 0 6px';
+                    separator.innerHTML = '<b>' + escapeHtml(groupBadgePrefix) + 'n</b>';
+                    legend.appendChild(separator);
+
+                    const groupRows = Array.from(groupsById.values()).sort((a, b) => String(a.name).localeCompare(String(b.name), 'de'));
+                    for (const group of groupRows) {{
+                        const row = document.createElement('div');
+                        row.className = 'legend-item';
+                        const modeText = String(group.mode || 'hull') === 'bridge'
+                            ? ' · schmale Verbindungen'
+                            : ' · Hull';
+                        row.innerHTML = '<span class="swatch" style="background:' + groupColor(group.id) + '"></span>' +
+                            escapeHtml(group.name) + ' (' + group.keys.size + ')' + escapeHtml(modeText);
+                        legend.appendChild(row);
+                    }}
+                }}
+            }}
+
+            function clearPendingSelection() {{
+                pendingGroupKeys.clear();
+                refreshAllLayerStyles();
+            }}
+
+            function togglePendingArea(key) {{
+                if (excluded.has(key)) return;
+                if (pendingGroupKeys.has(key)) pendingGroupKeys.delete(key);
+                else pendingGroupKeys.add(key);
+                refreshAllLayerStyles();
+            }}
+
+            function removeGroupLocal(groupId) {{
+                const group = groupsById.get(groupId);
+                if (!group) return;
+                for (const key of group.keys) {{
+                    groupByAreaKey.delete(key);
+                    const f = featureByKey.get(key);
+                    if (f) {{
+                        f.group_id = null;
+                        f.group_name = null;
+                    }}
+                }}
+                groupsById.delete(groupId);
+            }}
+
+            function upsertGroupLocal(groupId, groupName, keys, mode) {{
+                for (const key of keys) {{
+                    const oldGroup = groupByAreaKey.get(key);
+                    if (oldGroup) {{
+                        oldGroup.keys.delete(key);
+                        if (oldGroup.keys.size === 0) groupsById.delete(oldGroup.id);
+                    }}
+                }}
+
+                const normalizedName = String(groupName || (groupBadgePrefix + ' ' + groupId)).trim();
+                const normalizedMode = String(mode || 'hull').trim().toLowerCase() === 'bridge' ? 'bridge' : 'hull';
+                const group = groupsById.get(groupId) || {{ id: groupId, name: normalizedName, mode: normalizedMode, keys: new Set() }};
+                group.name = normalizedName;
+                group.mode = normalizedMode;
+                for (const key of keys) {{
+                    group.keys.add(key);
+                    groupByAreaKey.set(key, group);
+                    const f = featureByKey.get(key);
+                    if (f) {{
+                        f.group_id = groupId;
+                        f.group_name = normalizedName;
+                        f.group_mode = normalizedMode;
+                    }}
+                }}
+                groupsById.set(groupId, group);
+            }}
+
+            function finalizePendingGroup(mode) {{
+                const keys = Array.from(pendingGroupKeys).filter(k => featureByKey.has(k) && !excluded.has(k));
+                if (keys.length === 0) return;
+                const normalizedMode = String(mode || 'hull').trim().toLowerCase() === 'bridge' ? 'bridge' : 'hull';
+
+                const localGroupId = 'local-' + String(Date.now());
+                const localGroupName = groupBadgePrefix + ' ' + String(groupsById.size + 1);
+                upsertGroupLocal(localGroupId, localGroupName, keys, normalizedMode);
+                clearPendingSelection();
+                refreshPopupContents();
+                updateLegend();
+                renderLineOverlay();
+                renderDayRoutes();
+                formatStats();
+
+                if (bridge && typeof bridge.createAreaGroup === 'function') {{
+                    bridge.createAreaGroup(JSON.stringify({{ keys: keys, mode: normalizedMode }}));
+                }}
+            }}
+
+            function dissolveGroupForArea(key) {{
+                const group = groupByAreaKey.get(key);
+                if (!group) return;
+                if (!window.confirm(groupDissolveConfirm + '\\n\\n' + group.name + '?')) return;
+
+                removeGroupLocal(group.id);
+                pendingGroupKeys.delete(key);
+                refreshAllLayerStyles();
+                refreshPopupContents();
+                updateLegend();
+
+                if (bridge && typeof bridge.dissolveAreaGroup === 'function') {{
+                    bridge.dissolveAreaGroup(group.id);
+                }}
+            }}
+
+            function hideContextMenu() {{
+                if (!contextMenu) return;
+                contextMenu.style.display = 'none';
+                contextMenu.innerHTML = '';
+            }}
+
+            function showContextMenu(event, feature) {{
+                if (!contextMenu) return;
+                const items = [];
+                if (groupMode && pendingGroupKeys.has(feature.key)) {{
+                    items.push({{ label: groupUnselectLabel, action: () => togglePendingArea(feature.key) }});
+                }}
+                if (groupMode && pendingGroupKeys.size > 0) {{
+                    items.push({{ label: groupFinishLabel, action: () => finalizePendingGroup('hull') }});
+                    items.push({{ label: groupFinishBridgeLabel, action: () => finalizePendingGroup('bridge') }});
+                }}
+                if (groupByAreaKey.has(feature.key)) {{
+                    items.push({{ label: groupDissolveLabel, action: () => dissolveGroupForArea(feature.key), danger: true }});
+                }}
+                if (items.length === 0) {{
+                    hideContextMenu();
+                    return;
+                }}
+
+                contextMenu.innerHTML = '';
+                for (const item of items) {{
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.textContent = item.label;
+                    if (item.danger) btn.classList.add('danger');
+                    btn.onclick = () => {{
+                        hideContextMenu();
+                        item.action();
+                    }};
+                    contextMenu.appendChild(btn);
+                }}
+
+                const px = event.originalEvent && Number.isFinite(event.originalEvent.clientX)
+                    ? event.originalEvent.clientX
+                    : 20;
+                const py = event.originalEvent && Number.isFinite(event.originalEvent.clientY)
+                    ? event.originalEvent.clientY
+                    : 20;
+                contextMenu.style.left = px + 'px';
+                contextMenu.style.top = py + 'px';
+                contextMenu.style.display = 'block';
+            }}
+
+            function featureToGeoJson(feature) {{
+                const rings = Array.isArray(feature.rings) ? feature.rings : [];
+                const coords = [];
+                for (const ring of rings) {{
+                    if (!Array.isArray(ring) || ring.length < 3) continue;
+                    const ll = ring.map(pt => [Number(pt[1]), Number(pt[0])]);
+                    if (ll.length >= 3) {{
+                        const first = ll[0];
+                        const last = ll[ll.length - 1];
+                        if (first[0] !== last[0] || first[1] !== last[1]) ll.push([first[0], first[1]]);
+                        coords.push(ll);
+                    }}
+                }}
+                if (coords.length === 0) return null;
+                return {{ type: 'Feature', properties: {{}}, geometry: {{ type: 'Polygon', coordinates: coords }} }};
+            }}
+
+            function selectByLasso(pointsLatLng) {{
+                if (!Array.isArray(pointsLatLng) || pointsLatLng.length < 3) return;
+                const closed = pointsLatLng.slice();
+                const first = closed[0];
+                const last = closed[closed.length - 1];
+                if (!last || first.lat !== last.lat || first.lng !== last.lng) {{
+                    closed.push(first);
+                }}
+
+                const lassoGeo = {{
+                    type: 'Feature',
+                    properties: {{}},
+                    geometry: {{
+                        type: 'Polygon',
+                        coordinates: [closed.map(p => [Number(p.lng), Number(p.lat)])]
+                    }}
+                }};
+
+                for (const feature of features) {{
+                    if (excluded.has(feature.key)) continue;
+                    const featureGeo = featureToGeoJson(feature);
+                    if (!featureGeo) continue;
+
+                    let touched = false;
+                    if (window.turf && typeof window.turf.booleanIntersects === 'function') {{
+                        try {{
+                            touched = !!window.turf.booleanIntersects(lassoGeo, featureGeo);
+                        }} catch (_err) {{
+                            touched = false;
+                        }}
+                    }} else {{
+                        const layer = layersByKey.get(feature.key);
+                        if (layer) {{
+                            touched = layer.getBounds().intersects(L.polygon(closed).getBounds());
+                        }}
+                    }}
+
+                    if (touched) pendingGroupKeys.add(feature.key);
+                }}
+
+                refreshAllLayerStyles();
+            }}
+
             window.toggleArea = function(encodedKey) {{
+                hideContextMenu();
                 const key = decodeURIComponent(encodedKey);
                 const feature = featureByKey.get(key);
                 const layer = layersByKey.get(key);
@@ -5078,6 +5636,7 @@ class MainWindow(QtWidgets.QMainWindow):
             }};
 
             window.setStartArea = function(encodedKey) {{
+                hideContextMenu();
                 const key = decodeURIComponent(encodedKey);
                 if (!featureByKey.has(key)) return;
                 selectedStartKey = key;
@@ -5127,6 +5686,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 }}
 
                 poly.on('popupopen', function(e) {{
+                    if (groupMode) {{
+                        poly.closePopup();
+                        return;
+                    }}
                     const root = e.popup && e.popup.getElement ? e.popup.getElement() : null;
                     if (!root) {{
                         return;
@@ -5144,6 +5707,17 @@ class MainWindow(QtWidgets.QMainWindow):
                         }};
                     }}
                 }});
+
+                poly.on('click', function() {{
+                    hideContextMenu();
+                    if (!groupMode) return;
+                    togglePendingArea(feature.key);
+                }});
+
+                poly.on('contextmenu', function(e) {{
+                    if (!groupMode && !groupByAreaKey.has(feature.key)) return;
+                    showContextMenu(e, feature);
+                }});
                 poly.addTo(group);
             }}
 
@@ -5153,14 +5727,7 @@ class MainWindow(QtWidgets.QMainWindow):
             map.setView(defaultCenter, defaultZoom);
             }}
 
-            const legend = document.getElementById('legend');
-            legend.innerHTML = '';
-            for (const [applicant, color] of Object.entries(colors).sort((a, b) => a[0].localeCompare(b[0], 'de'))) {{
-                const row = document.createElement('div');
-                row.className = 'legend-item';
-                row.innerHTML = '<span class="swatch" style="background:' + color + '"></span>' + escapeHtml(applicant);
-                legend.appendChild(row);
-            }}
+            updateLegend();
 
             if (toggleLines) {{
                 toggleLines.onchange = function() {{
@@ -5168,6 +5735,75 @@ class MainWindow(QtWidgets.QMainWindow):
                     renderLineOverlay();
                 }};
             }}
+
+            function setGroupMode(active) {{
+                groupMode = !!active;
+                hideContextMenu();
+                if (groupModeBtn) {{
+                    groupModeBtn.classList.toggle('active', groupMode);
+                    groupModeBtn.textContent = groupMode ? groupModeActiveLabel : groupModeLabel;
+                }}
+                if (groupMode) {{
+                    map.dragging.disable();
+                }} else {{
+                    map.dragging.enable();
+                    if (lassoLine) {{
+                        map.removeLayer(lassoLine);
+                        lassoLine = null;
+                    }}
+                    lassoPoints = [];
+                    lassoDrawing = false;
+                    clearPendingSelection();
+                }}
+            }}
+
+            if (groupModeBtn) {{
+                groupModeBtn.onclick = function() {{
+                    setGroupMode(!groupMode);
+                }};
+            }}
+
+            map.on('mousedown', function(e) {{
+                if (!groupMode) return;
+                const button = e.originalEvent && Number.isFinite(e.originalEvent.button)
+                    ? Number(e.originalEvent.button)
+                    : 0;
+                if (button !== 0) return;
+
+                hideContextMenu();
+                lassoDrawing = true;
+                lassoPoints = [e.latlng];
+                if (lassoLine) map.removeLayer(lassoLine);
+                lassoLine = L.polyline(lassoPoints, {{
+                    color: '#f9a825',
+                    weight: 2,
+                    dashArray: '6,4',
+                    interactive: false,
+                }}).addTo(map);
+            }});
+
+            map.on('mousemove', function(e) {{
+                if (!groupMode || !lassoDrawing) return;
+                lassoPoints.push(e.latlng);
+                if (lassoLine) lassoLine.setLatLngs(lassoPoints);
+            }});
+
+            map.on('mouseup', function() {{
+                if (!groupMode || !lassoDrawing) return;
+                lassoDrawing = false;
+                if (lassoLine) {{
+                    map.removeLayer(lassoLine);
+                    lassoLine = null;
+                }}
+                if (lassoPoints.length >= 3) {{
+                    selectByLasso(lassoPoints);
+                }}
+                lassoPoints = [];
+            }});
+
+            map.on('click', function() {{
+                hideContextMenu();
+            }});
 
             renderLineOverlay();
             renderDayRoutes();
@@ -5178,7 +5814,66 @@ class MainWindow(QtWidgets.QMainWindow):
             window.addEventListener('resize', () => map.invalidateSize(true));
         }}
 
-        setTimeout(renderLeafletMap, 50);
+        function renderSimpleMapFallback() {{
+            const mapNode = document.getElementById('map');
+            if (!mapNode) return;
+            if (typeof window.L === 'undefined') {{
+                mapNode.style.display = 'flex';
+                mapNode.style.alignItems = 'center';
+                mapNode.style.justifyContent = 'center';
+                mapNode.style.fontFamily = 'Arial, sans-serif';
+                mapNode.style.fontSize = '13px';
+                mapNode.textContent = leafletErrorText;
+                return;
+            }}
+
+            try {{
+                mapNode.innerHTML = '';
+                if (Object.prototype.hasOwnProperty.call(mapNode, '_leaflet_id')) {{
+                    mapNode._leaflet_id = undefined;
+                }}
+            }} catch (_cleanupErr) {{
+                // Ignore container cleanup errors and continue with best effort.
+            }}
+
+            const map = L.map('map', {{ zoomControl: true }});
+            L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}', {{
+                attribution: 'Tiles © Esri'
+            }}).addTo(map);
+
+            const fg = L.featureGroup().addTo(map);
+            for (const feature of features) {{
+                if (!feature || !Array.isArray(feature.rings)) continue;
+                const color = colors[feature.applicant] || '#ff0000';
+                try {{
+                    L.polygon(feature.rings, {{
+                        color: color,
+                        weight: 2,
+                        fillColor: color,
+                        fillOpacity: feature.excluded ? 0.2 : 0.35,
+                    }}).addTo(fg);
+                }} catch (_polyErr) {{
+                    // Skip invalid polygon but continue rendering remaining areas.
+                }}
+            }}
+
+            if (fg.getLayers().length > 0) {{
+                map.fitBounds(fg.getBounds().pad(0.08));
+            }} else {{
+                map.setView(defaultCenter, defaultZoom);
+            }}
+        }}
+
+        setTimeout(function() {{
+            try {{
+                renderLeafletMap();
+            }} catch (err) {{
+                try {{
+                    console.error('Advanced map rendering failed:', err);
+                }} catch (_consoleErr) {{}}
+                renderSimpleMapFallback();
+            }}
+        }}, 50);
   </script>
 </body>
 </html>
@@ -5345,6 +6040,7 @@ class MainWindow(QtWidgets.QMainWindow):
             entries = self._collect_geometry_entries(features, summaries)
             current_keys = {entry["key"] for entry in entries}
             self.excluded_area_keys.intersection_update(current_keys)
+            self._sync_area_groups(current_keys)
             if self.selected_start_area_key not in current_keys:
                 self.selected_start_area_key = None
 
@@ -5358,6 +6054,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 include_kitz_time=True,
             )
             area_estimates_by_key = area_payload.get("area_estimates_by_key", {}) or {}
+            group_lookup = self._group_lookup_by_area()
 
             map_items = [
                 {
@@ -5367,6 +6064,21 @@ class MainWindow(QtWidgets.QMainWindow):
                     "key": entry["key"],
                     "excluded": entry["key"] in self.excluded_area_keys,
                     "center": entry.get("center"),
+                    "group_id": (
+                        (group_lookup.get(entry["key"]) or {}).get("id")
+                        if group_lookup.get(entry["key"])
+                        else None
+                    ),
+                    "group_name": (
+                        (group_lookup.get(entry["key"]) or {}).get("name")
+                        if group_lookup.get(entry["key"])
+                        else None
+                    ),
+                    "group_mode": (
+                        (group_lookup.get(entry["key"]) or {}).get("mode")
+                        if group_lookup.get(entry["key"])
+                        else None
+                    ),
                     "kitz_show": True,
                     "kitz_yearly": (
                         area_estimates_by_key.get(entry["key"], {}).get("yearly", {})
@@ -5744,6 +6456,7 @@ class MainWindow(QtWidgets.QMainWindow):
             entries = self._collect_geometry_entries(features, summaries)
             current_keys = {entry["key"] for entry in entries}
             self.excluded_area_keys.intersection_update(current_keys)
+            self._sync_area_groups(current_keys)
             if self.selected_start_area_key not in current_keys:
                 self.selected_start_area_key = None
 
@@ -5822,6 +6535,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 applicant: self._color_for_applicant(applicant)
                 for applicant in applicants
             }
+            group_lookup = self._group_lookup_by_area()
             map_items = [
                 {
                     "applicant": entry["applicant"],
@@ -5834,6 +6548,21 @@ class MainWindow(QtWidgets.QMainWindow):
                     "key": entry["key"],
                     "excluded": entry["key"] in self.excluded_area_keys,
                     "center": entry.get("center"),
+                    "group_id": (
+                        (group_lookup.get(entry["key"]) or {}).get("id")
+                        if group_lookup.get(entry["key"])
+                        else None
+                    ),
+                    "group_name": (
+                        (group_lookup.get(entry["key"]) or {}).get("name")
+                        if group_lookup.get(entry["key"])
+                        else None
+                    ),
+                    "group_mode": (
+                        (group_lookup.get(entry["key"]) or {}).get("mode")
+                        if group_lookup.get(entry["key"])
+                        else None
+                    ),
                     "kitz_show": bool(include_kitz_time),
                     "kitz_yearly": (
                         (day_plan.get("area_estimates_by_key", {}) or {})
@@ -6155,10 +6884,14 @@ class MainWindow(QtWidgets.QMainWindow):
             entries = self._collect_geometry_entries(features, summaries)
             current_keys = {entry["key"] for entry in entries}
             self.excluded_area_keys.intersection_update(current_keys)
+            self._sync_area_groups(current_keys)
 
-            polys = []
-            names = []
-            directions = []
+            all_keys = []
+            all_polys = []
+            all_names = []
+            all_directions = []
+            key_to_all_index = {}
+            key_to_group_label = {}
             est_total_distance_m = 0.0
             est_total_time_s = 0.0
 
@@ -6202,8 +6935,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 )
                 base_file_name = f"{nachname}-{datum}-{schlag}"
 
-                polys.append(geom)
-                names.append(base_file_name)
+                all_keys.append(entry["key"])
+                all_polys.append(geom)
+                all_names.append(base_file_name)
+                key_to_all_index[entry["key"]] = len(all_polys) - 1
+                key_to_group_label[entry["key"]] = str(entry.get("label") or "flaeche")
                 if self.optimize_direction_check.isChecked() and optimizer is not None:
                     if hasattr(optimizer, "best_mapping_direction_deg"):
                         result = optimizer.best_mapping_direction_deg(
@@ -6216,20 +6952,20 @@ class MainWindow(QtWidgets.QMainWindow):
                         direction_deg = (
                             int(round(float(result.get("direction_deg", 0.0)))) % 180
                         )
-                        directions.append(direction_deg)
+                        all_directions.append(direction_deg)
                         est_total_distance_m += float(result.get("distance_m", 0.0))
                         est_total_time_s += float(result.get("time_s", 0.0))
                     else:
-                        directions.append(
+                        all_directions.append(
                             int(round(float(optimizer.mrr_angle_deg(geom)))) % 180
                         )
                 else:
-                    directions.append(0)
+                    all_directions.append(0)
 
             if skipped > 0:
                 self.logln(self._txt("convert_excluded").format(count=skipped))
 
-            if not polys:
+            if not all_polys:
                 msg = self._txt(
                     "convert_no_polygons_survey123",
                     "In der Datei wurden keine verwertbaren Flächen gefunden.\n\nBitte stellen Sie sicher, dass Sie eine KMZ-Datei aus Survey 123 verwenden.",
@@ -6244,7 +6980,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 )
                 return None
 
-            self.logln(self._txt("convert_polygons_extracted").format(count=len(polys)))
+            self.logln(
+                self._txt("convert_polygons_extracted").format(count=len(all_polys))
+            )
             if self.optimize_direction_check.isChecked() and est_total_distance_m > 0:
                 est_total_time_min = est_total_time_s / 60.0
                 self.logln(
@@ -6256,20 +6994,42 @@ class MainWindow(QtWidgets.QMainWindow):
             QtCore.QCoreApplication.processEvents()
 
             self.logln(self._txt("convert_normalizing"))
-            norm = [rules.normalize_polygon(p, add_z_if_missing=True) for p in polys]
+            all_norm = [
+                rules.normalize_polygon(p, add_z_if_missing=True) for p in all_polys
+            ]
             self.logln(self._txt("convert_normalized"))
             QtCore.QCoreApplication.processEvents()
 
+            grouped_key_set = {
+                str(k or "").strip()
+                for group in self.area_groups
+                for k in (group.get("keys") or [])
+                if str(k or "").strip() in key_to_all_index
+            }
+            individual_keys = [k for k in all_keys if k not in grouped_key_set]
+            individual_indices = [key_to_all_index[k] for k in individual_keys]
+            individual_norm = [all_norm[i] for i in individual_indices]
+            individual_names = [all_names[i] for i in individual_indices]
+            individual_directions = [all_directions[i] for i in individual_indices]
+
+            grouped_excluded_count = len(all_keys) - len(individual_keys)
+            if grouped_excluded_count > 0:
+                self.logln(
+                    f"ℹ {grouped_excluded_count} Fläche(n) werden nur über Gruppen exportiert"
+                )
+
             out_dir.mkdir(parents=True, exist_ok=True)
 
-            self.logln(self._txt("convert_writing").format(count=len(norm)))
+            self.logln(
+                self._txt("convert_writing").format(count=len(individual_norm))
+            )
             written = writer.write_polygons_to_kmzs(
-                norm,
+                individual_norm,
                 str(out_dir),
                 basename,
                 options=options,
-                names=names,
-                directions=directions,
+                names=individual_names,
+                directions=individual_directions,
             )
 
             self.progress.setMaximum(100)
@@ -6278,8 +7038,8 @@ class MainWindow(QtWidgets.QMainWindow):
             written_files = []
             stem_counts = {}
             for idx in range(written):
-                if idx < len(names):
-                    base_stem = self._sanitize_output_name(names[idx])
+                if idx < len(individual_names):
+                    base_stem = self._sanitize_output_name(individual_names[idx])
                 else:
                     base_stem = self._sanitize_output_name(f"{basename}-{idx + 1:03d}")
                 count_for_stem = int(stem_counts.get(base_stem, 0)) + 1
@@ -6289,15 +7049,71 @@ class MainWindow(QtWidgets.QMainWindow):
                 )
                 written_files.append(out_dir / f"{stem}.kmz")
 
+            used_stems = {p.stem for p in written_files}
+            grouped_files = []
+            for group in self.area_groups:
+                group_keys = [
+                    str(k or "").strip()
+                    for k in group.get("keys", [])
+                    if str(k or "").strip() in key_to_all_index
+                ]
+                if not group_keys:
+                    continue
+
+                group_indices = [key_to_all_index[k] for k in group_keys]
+                group_polys = [all_norm[i] for i in group_indices]
+                group_dirs = [all_directions[i] for i in group_indices]
+
+                group_labels = [
+                    self._sanitize_output_name(key_to_group_label.get(k, "flaeche"))
+                    for k in group_keys
+                ]
+                group_labels = [lbl for lbl in group_labels if lbl]
+                preview_labels = group_labels[:3]
+                if preview_labels:
+                    base_group_name = "gruppe-beinhaltet-" + "-".join(preview_labels)
+                else:
+                    base_group_name = self._sanitize_output_name(
+                        str(group.get("name") or f"gruppe-{group.get('id', '')}")
+                    )
+                remaining = len(group_labels) - len(preview_labels)
+                if remaining > 0:
+                    base_group_name = f"{base_group_name}-und-{remaining}-weitere"
+                if len(base_group_name) > 110:
+                    base_group_name = base_group_name[:110].rstrip("-.")
+                if not base_group_name:
+                    base_group_name = "gruppe"
+                group_stem = base_group_name
+                suffix = 2
+                while group_stem in used_stems:
+                    group_stem = f"{base_group_name}-{suffix}"
+                    suffix += 1
+                used_stems.add(group_stem)
+
+                group_path = writer.write_polygon_group_to_kmz(
+                    group_polys,
+                    str(out_dir),
+                    group_stem,
+                    options=options,
+                    directions=group_dirs,
+                    display_mode=str(group.get("mode") or "hull"),
+                )
+                if group_path.exists():
+                    grouped_files.append(group_path)
+                    self.logln(
+                        self._txt("convert_combined").format(name=group_path.name)
+                    )
+
             self.logln("─" * 60)
-            self.logln(self._txt("convert_generated").format(count=written))
+            total_generated = int(written) + int(len(grouped_files))
+            self.logln(self._txt("convert_generated").format(count=total_generated))
             if log_output_dir:
                 self.logln(self._txt("convert_output_folder").format(path=out_dir))
             self.status.showMessage(self.strings["done"])
 
             if show_success_dialog:
                 success_text = (
-                    f"✓ {self._txt('success', 'Success')}: {written} KMZ-Dateien\n\n"
+                    f"✓ {self._txt('success', 'Success')}: {total_generated} KMZ-Dateien\n\n"
                     f"{self._txt('output_folder', 'Output folder')}:\n{out_dir}"
                 )
                 QtWidgets.QMessageBox.information(
@@ -6310,6 +7126,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 "written": int(written),
                 "out_dir": out_dir,
                 "files": [p for p in written_files if p.exists()],
+                "group_files": grouped_files,
             }
         finally:
             self.progress.setVisible(False)
@@ -6442,6 +7259,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     return
 
                 files = list(conversion.get("files") or [])
+                files.extend(list(conversion.get("group_files") or []))
                 if not files:
                     raise RuntimeError("No generated KMZ files found for upload")
 

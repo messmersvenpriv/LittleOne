@@ -4,7 +4,8 @@ import time
 import re
 import zipfile
 import math
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, MultiPolygon, LineString
+from shapely.ops import unary_union, nearest_points
 
 try:
     from .optimize_angle import mapping_preview
@@ -372,6 +373,162 @@ def polygon_to_waylines_wpml(polygon: Polygon, options: Optional[dict] = None) -
 """
 
 
+def polygons_to_waylines_wpml(
+    polygons: Sequence[Polygon],
+    options: Optional[dict] = None,
+    directions: Optional[Sequence[int]] = None,
+) -> str:
+    poly_list = list(polygons)
+    if not poly_list:
+        raise ValueError("polygons must not be empty")
+
+    opts = options or {}
+    profile = _drone_profile(str(opts.get("drohne", "M4T")))
+
+    flughoehe = float(opts.get("flughöhe_m", 60))
+    sichere_starthoehe = float(opts.get("sichere_starthöhe_m", max(20, flughoehe)))
+    speed = max(0.1, float(opts.get("geschwindigkeit_ms", 8)))
+    overlap_w = float(opts.get("seitlicher_überlapp_prozent", 30))
+    drone = str(opts.get("drohne", "M4T"))
+    finish_action = _map_finish_action(
+        str(opts.get("aktion_beenden", "Rückkehrfunktion"))
+    )
+
+    global_coords = []
+    for i, polygon in enumerate(poly_list):
+        direction = float(opts.get("direction", 0))
+        if directions and i < len(directions):
+            direction = float(directions[i])
+
+        preview = mapping_preview(
+            polygon,
+            altitude_m=flughoehe,
+            side_overlap_percent=overlap_w,
+            speed_mps=speed,
+            drone=drone,
+            direction_deg=direction,
+        )
+        line_segments = list(preview.get("lines_latlon") or [])
+
+        coords = []
+        for line_index, segment in enumerate(line_segments):
+            if not segment or len(segment) < 2:
+                continue
+            points = [(float(lon), float(lat)) for lat, lon in segment]
+            if line_index % 2 == 1:
+                points.reverse()
+            if coords and points and coords[-1] == points[0]:
+                coords.extend(points[1:])
+            else:
+                coords.extend(points)
+
+        if len(coords) < 2:
+            fallback = [
+                (float(lon), float(lat)) for lon, lat, *_ in polygon.exterior.coords
+            ]
+            if len(fallback) >= 2 and fallback[0] == fallback[-1]:
+                fallback = fallback[:-1]
+            coords = fallback
+
+        if len(coords) < 2:
+            raise ValueError("Polygon requires at least two coordinates for wayline")
+
+        if global_coords and coords and global_coords[-1] == coords[0]:
+            global_coords.extend(coords[1:])
+        else:
+            global_coords.extend(coords)
+
+    if len(global_coords) < 2:
+        raise ValueError("polygons require at least two coordinates for wayline")
+
+    total_distance = 0.0
+    for i in range(len(global_coords) - 1):
+        total_distance += _haversine_m(
+            global_coords[i][0],
+            global_coords[i][1],
+            global_coords[i + 1][0],
+            global_coords[i + 1][1],
+        )
+    total_duration = total_distance / speed
+
+    wayline_avoid = ""
+    if profile["include_wayline_avoid"]:
+        wayline_avoid = (
+            "\n      <wpml:waylineAvoidLimitAreaMode>1</wpml:waylineAvoidLimitAreaMode>"
+        )
+
+    placemarks = []
+    for idx, (lon, lat) in enumerate(global_coords):
+        if idx < len(global_coords) - 1:
+            next_lon, next_lat = global_coords[idx + 1]
+        else:
+            next_lon, next_lat = global_coords[idx]
+        heading = _heading_deg(lon, lat, next_lon, next_lat)
+        placemarks.append(
+            f"""      <Placemark>
+                <Point>
+                    <coordinates>{_fmt_number(lon)},{_fmt_number(lat)}</coordinates>
+                </Point>
+                <wpml:index>{idx}</wpml:index>
+                <wpml:executeHeight>{_fmt_number(flughoehe)}</wpml:executeHeight>
+                <wpml:waypointSpeed>{_fmt_number(speed)}</wpml:waypointSpeed>
+                <wpml:waypointHeadingParam>
+                    <wpml:waypointHeadingMode>followWayline</wpml:waypointHeadingMode>
+                    <wpml:waypointHeadingAngle>{_fmt_number(heading)}</wpml:waypointHeadingAngle>
+                    <wpml:waypointPoiPoint>0.000000,0.000000,0.000000</wpml:waypointPoiPoint>
+                    <wpml:waypointHeadingAngleEnable>0</wpml:waypointHeadingAngleEnable>
+                    <wpml:waypointHeadingPathMode>followBadArc</wpml:waypointHeadingPathMode>
+                    <wpml:waypointHeadingPoiIndex>0</wpml:waypointHeadingPoiIndex>
+                </wpml:waypointHeadingParam>
+                <wpml:waypointTurnParam>
+                    <wpml:waypointTurnMode>coordinateTurn</wpml:waypointTurnMode>
+                    <wpml:waypointTurnDampingDist>0</wpml:waypointTurnDampingDist>
+                </wpml:waypointTurnParam>
+                <wpml:useStraightLine>1</wpml:useStraightLine>
+                <wpml:waypointGimbalHeadingParam>
+                    <wpml:waypointGimbalPitchAngle>0</wpml:waypointGimbalPitchAngle>
+                    <wpml:waypointGimbalYawAngle>0</wpml:waypointGimbalYawAngle>
+                </wpml:waypointGimbalHeadingParam>
+                <wpml:isRisky>0</wpml:isRisky>
+                <wpml:waypointWorkType>0</wpml:waypointWorkType>
+            </Placemark>"""
+        )
+    placemarks_xml = "\n".join(placemarks)
+
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:wpml="http://www.dji.com/wpmz/1.0.6">
+    <Document>
+        <wpml:missionConfig>
+            <wpml:flyToWaylineMode>safely</wpml:flyToWaylineMode>
+            <wpml:finishAction>{finish_action}</wpml:finishAction>
+            <wpml:exitOnRCLost>executeLostAction</wpml:exitOnRCLost>
+            <wpml:executeRCLostAction>goBack</wpml:executeRCLostAction>
+            <wpml:takeOffSecurityHeight>{_fmt_number(sichere_starthoehe)}</wpml:takeOffSecurityHeight>
+            <wpml:globalTransitionalSpeed>15</wpml:globalTransitionalSpeed>
+            <wpml:droneInfo>
+                <wpml:droneEnumValue>{profile["drone_enum"]}</wpml:droneEnumValue>
+                <wpml:droneSubEnumValue>0</wpml:droneSubEnumValue>
+            </wpml:droneInfo>{wayline_avoid}
+            <wpml:payloadInfo>
+                <wpml:payloadEnumValue>{profile["payload_enum"]}</wpml:payloadEnumValue>
+                <wpml:payloadSubEnumValue>2</wpml:payloadSubEnumValue>
+                <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex>
+            </wpml:payloadInfo>
+        </wpml:missionConfig>
+        <Folder>
+            <wpml:templateId>0</wpml:templateId>
+            <wpml:executeHeightMode>relativeToStartPoint</wpml:executeHeightMode>
+            <wpml:waylineId>0</wpml:waylineId>
+            <wpml:distance>{_fmt_number(total_distance)}</wpml:distance>
+            <wpml:duration>{_fmt_number(total_duration)}</wpml:duration>
+            <wpml:autoFlightSpeed>{_fmt_number(speed)}</wpml:autoFlightSpeed>
+{placemarks_xml}
+        </Folder>
+    </Document>
+</kml>
+"""
+
+
 def polygons_to_wpml_kml(
     polygons: Sequence[Polygon],
     options: Optional[dict] = None,
@@ -562,3 +719,149 @@ def write_polygons_to_kmzs(
         count += 1
 
     return count
+
+
+def write_polygon_group_to_kmz(
+    polygons: Sequence[Polygon],
+    out_dir: str,
+    file_stem: str,
+    options: Optional[dict] = None,
+    directions: Optional[Sequence[int]] = None,
+    display_mode: str = "hull",
+) -> Path:
+    poly_list = list(polygons)
+    if not poly_list:
+        raise ValueError("polygons must not be empty")
+
+    mode = str(display_mode or "hull").strip().lower()
+    merged_geom = unary_union(poly_list)
+    template_polygons: list[Polygon]
+    template_directions: list[int] = list(int(d) for d in (directions or []))
+
+    if mode == "bridge":
+        components = list(merged_geom.geoms) if isinstance(merged_geom, MultiPolygon) else [merged_geom]
+        components = [g for g in components if isinstance(g, Polygon) and not g.is_empty]
+
+        if len(components) <= 1:
+            display_geom = components[0] if components else merged_geom
+            if isinstance(display_geom, Polygon):
+                template_polygons = [display_geom]
+            elif isinstance(display_geom, MultiPolygon):
+                template_polygons = [max(display_geom.geoms, key=lambda g: g.area)]
+            else:
+                template_polygons = poly_list
+        else:
+            minx, miny, maxx, maxy = merged_geom.bounds
+            span = max(maxx - minx, maxy - miny)
+
+            # Thin but robust bridge width in degree-space.
+            base_width = max(0.000003, min(0.00002, span * 0.00035))
+
+            merged_parts = [components[0]]
+            remaining = components[1:]
+            connector_polys: list[Polygon] = []
+
+            while remaining:
+                best_idx = None
+                best_dist = float("inf")
+                best_pair = None
+                for idx, candidate in enumerate(remaining):
+                    for joined in merged_parts:
+                        p1, p2 = nearest_points(joined, candidate)
+                        dist = p1.distance(p2)
+                        if dist < best_dist:
+                            best_dist = dist
+                            best_idx = idx
+                            best_pair = (p1, p2)
+
+                if best_idx is None or best_pair is None:
+                    merged_parts.extend(remaining)
+                    break
+
+                chosen = remaining.pop(best_idx)
+                merged_parts.append(chosen)
+                p1, p2 = best_pair
+                strip_geom = LineString([(float(p1.x), float(p1.y)), (float(p2.x), float(p2.y))]).buffer(
+                    base_width / 2.0,
+                    cap_style=2,
+                    join_style=2,
+                )
+                if isinstance(strip_geom, Polygon) and not strip_geom.is_empty:
+                    connector_polys.append(strip_geom)
+                elif isinstance(strip_geom, MultiPolygon):
+                    connector_polys.extend(
+                        [g for g in strip_geom.geoms if isinstance(g, Polygon) and not g.is_empty]
+                    )
+
+            # Build ONE connected polygon so Pilot 2 shows one area object with preserved contours.
+            build_geoms = list(components) + connector_polys
+            display_geom = unary_union(build_geoms)
+
+            # If still not connected, gradually increase strip width (still narrow).
+            if isinstance(display_geom, MultiPolygon):
+                grow_factors = (1.8, 2.6, 3.6)
+                for factor in grow_factors:
+                    widened = []
+                    width = base_width * factor
+                    for strip in connector_polys:
+                        widened_geom = strip.buffer(width / 2.0, cap_style=2, join_style=2)
+                        if isinstance(widened_geom, Polygon) and not widened_geom.is_empty:
+                            widened.append(widened_geom)
+                        elif isinstance(widened_geom, MultiPolygon):
+                            widened.extend(
+                                [g for g in widened_geom.geoms if isinstance(g, Polygon) and not g.is_empty]
+                            )
+                    display_geom = unary_union(list(components) + widened)
+                    if isinstance(display_geom, Polygon):
+                        break
+
+            if isinstance(display_geom, Polygon):
+                template_polygons = [display_geom]
+            elif isinstance(display_geom, MultiPolygon):
+                # Fallback: choose largest connected part instead of huge hull.
+                template_polygons = [max(display_geom.geoms, key=lambda g: g.area)]
+            else:
+                template_polygons = [merged_geom.convex_hull]
+    else:
+        # Default: single hull display area for robust Pilot 2 rendering.
+        display_geom = merged_geom.convex_hull
+        if isinstance(display_geom, Polygon):
+            display_polygon = display_geom
+        elif isinstance(display_geom, MultiPolygon):
+            display_polygon = display_geom.convex_hull
+        else:
+            display_polygon = display_geom.convex_hull
+        template_polygons = [display_polygon]
+        template_directions = [int(template_directions[0])] if template_directions else []
+
+    if not template_polygons:
+        raise ValueError("Could not create display geometry for group")
+    template_polygons = [
+        p for p in template_polygons if isinstance(p, Polygon) and not p.is_empty
+    ]
+    if not template_polygons:
+        raise ValueError("Could not create valid template polygons for group")
+
+    out_path = Path(out_dir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    safe_stem = _sanitize_filename(file_stem)
+
+    template_options = dict(options or {})
+    template_xml = polygons_to_wpml_kml(
+        template_polygons,
+        options=template_options,
+        directions=template_directions,
+    )
+    waylines_xml = polygons_to_waylines_wpml(
+        poly_list,
+        options=options,
+        directions=directions,
+    )
+
+    kmz_file = out_path / f"{safe_stem}.kmz"
+    with zipfile.ZipFile(kmz_file, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("wpmz/template.kml", template_xml)
+        zf.writestr("wpmz/waylines.wpml", waylines_xml)
+        zf.writestr("doc.kml", template_xml)
+
+    return kmz_file
